@@ -2,66 +2,95 @@
 
 namespace App\Models;
 
-use App\Services\ProductAvailabilityService;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Commodity extends Model
 {
-    use SoftDeletes;
+    use HasFactory, SoftDeletes;
 
-    protected $guarded = ['id'];
+    protected $fillable = [
+        'commodity_category_id',
+        'code',
+        'name',
+        'default_unit',
+        'default_growth_days',
+        'default_harvest_days',
+        'description',
+        'is_active',
+    ];
 
-    public function kwt()
+    protected function casts(): array
     {
-        return $this->belongsTo(Kwt::class);
+        return [
+            'default_growth_days' => 'integer',
+            'default_harvest_days' => 'integer',
+            'is_active' => 'boolean',
+        ];
     }
 
-    public function scopeForKwt($query, $id)
+    protected $appends = [
+        'public_state',
+    ];
+
+    public function category()
     {
-        return $query->when($id, fn ($q) => $q->where('kwt_id', $id));
+        return $this->belongsTo(
+            CommodityCategory::class,
+            'commodity_category_id'
+        );
     }
 
-    public function scopeVisibleTo($query, User $user)
-    {
-        return $user->role === 'admin_kwt' ? $query->where('kwt_id', $user->kwt_id ?? 0) : $query;
-    }
-
-    public function cycles()
+    public function cultivationCycles()
     {
         return $this->hasMany(CultivationCycle::class);
     }
 
-    public function availabilities()
+    public function getPublicStateAttribute(): array
     {
-        return $this->hasMany(HarvestAvailability::class);
-    }
+        $cycle = $this->cultivationCycles
+            ->whereIn('status', [
+                'planned',
+                'planted',
+                'growing',
+                'ready_to_harvest',
+            ])
+            ->sortBy('estimated_harvest_date')
+            ->first();
 
-    public function latestAvailability()
-    {
-        return $this->hasOne(HarvestAvailability::class)->latestOfMany();
-    }
+        $availability = $this->cultivationCycles
+            ->flatMap(fn ($cycle) => $cycle->harvests)
+            ->flatMap(fn ($harvest) => $harvest->availability ? [$harvest->availability] : [])
+            ->sortByDesc('id')
+            ->first();
 
-    public function scopeReady($query)
-    {
-        return $query->active()->whereHas('kwt', fn ($q) => $q->active())
-            ->whereHas('latestAvailability', fn ($q) => $q->whereIn('availability_status', ['available', 'limited'])->where('available_quantity', '>', 0));
-    }
+        $availableQuantity = $availability
+            ? max(
+                0,
+                (float) $availability->available_quantity
+                - (float) $availability->reserved_quantity
+                - (float) $availability->sold_quantity
+            )
+            : 0;
 
-    public function scopePubliclyActive($query)
-    {
-        return $query->active()->whereHas('kwt', fn ($q) => $q->active())
-            ->where(fn ($q) => $q->whereHas('cycles', fn ($c) => $c->active())
-                ->orWhereHas('latestAvailability', fn ($a) => $a->whereIn('availability_status', ['available', 'limited'])->where('available_quantity', '>', 0)));
-    }
+        if (! $this->is_active) {
+            $status = 'Tidak Aktif';
+        } elseif ($availableQuantity > 0) {
+            $status = 'Ready';
+        } elseif ($cycle?->status === 'ready_to_harvest') {
+            $status = 'Segera Panen';
+        } elseif ($cycle) {
+            $status = 'Sedang Ditanam';
+        } else {
+            $status = 'Habis';
+        }
 
-    public function scopeActive($q)
-    {
-        return $q->where('is_active', true);
-    }
-
-    public function getPublicStateAttribute()
-    {
-        return app(ProductAvailabilityService::class)->state($this);
+        return [
+            'status' => $status,
+            'quantity' => $availableQuantity,
+            'cycle' => $cycle,
+            'availability' => $availability,
+        ];
     }
 }

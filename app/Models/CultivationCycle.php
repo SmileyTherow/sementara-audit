@@ -2,33 +2,46 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class CultivationCycle extends Model
 {
-    use SoftDeletes;
+    use HasFactory, SoftDeletes;
 
-    protected $guarded = ['id'];
+    protected $fillable = [
+        'kwt_id',
+        'commodity_id',
+        'code',
+        'planting_date',
+        'estimated_harvest_date',
+        'actual_harvest_date',
+        'planting_area',
+        'seed_quantity',
+        'target_quantity',
+        'target_unit',
+        'status',
+        'notes',
+        'created_by',
+        'updated_by',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'planting_date' => 'date',
+            'estimated_harvest_date' => 'date',
+            'actual_harvest_date' => 'date',
+            'planting_area' => 'decimal:2',
+            'seed_quantity' => 'decimal:2',
+            'target_quantity' => 'decimal:2',
+        ];
+    }
 
     public function kwt()
     {
         return $this->belongsTo(Kwt::class);
-    }
-
-    public function scopeForKwt($query, $id)
-    {
-        return $query->when($id, fn ($q) => $q->where('kwt_id', $id));
-    }
-
-    public function scopeVisibleTo($query, User $user)
-    {
-        return $user->role === 'admin_kwt' ? $query->where('kwt_id', $user->kwt_id ?? 0) : $query;
-    }
-
-    protected function casts(): array
-    {
-        return ['start_date' => 'date', 'expected_harvest_date' => 'date', 'preorder_enabled' => 'boolean'];
     }
 
     public function commodity()
@@ -36,9 +49,19 @@ class CultivationCycle extends Model
         return $this->belongsTo(Commodity::class);
     }
 
-    public function monitorings()
+    public function creator()
     {
-        return $this->hasMany(GrowthMonitoring::class)->orderBy('monitoring_date')->orderBy('id');
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function updater()
+    {
+        return $this->belongsTo(User::class, 'updated_by');
+    }
+
+    public function growthMonitorings()
+    {
+        return $this->hasMany(GrowthMonitoring::class);
     }
 
     public function harvests()
@@ -46,18 +69,8 @@ class CultivationCycle extends Model
         return $this->hasMany(Harvest::class);
     }
 
-    public function scopeActive($q)
+    public function harvestAlerts()
     {
-        return $q->whereIn('status', ['seedling', 'growing', 'near_harvest']);
-    }
-
-    public function scopeGrowing($q)
-    {
-        return $q->whereIn('status', ['seedling', 'growing']);
-    }
-
-    public function scopeNearHarvest($q)
-    {
-        return $q->active()->where(fn ($q) => $q->where('status', 'near_harvest')->orWhereDate('expected_harvest_date', '<=', now()->addDays((int) Setting::valueOf('near_harvest_days', 7))));
+        return $this->hasMany(HarvestAlert::class);
     }
 }

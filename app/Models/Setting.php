@@ -2,14 +2,16 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Setting extends Model
 {
-    protected $guarded = ['id'];
+    use HasFactory;
 
-    public static function valueOf(string $key, $default = null)
-    {
-        return static::where('key', $key)->value('value') ?? $default;
-    }
+    protected $fillable = [
+        'key',
+        'value',
+        'description',
+    ];
 }

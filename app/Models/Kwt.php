@@ -2,33 +2,38 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Kwt extends Model
 {
-    use SoftDeletes;
+    use HasFactory, SoftDeletes;
 
-    protected $guarded = ['id'];
+    protected $table = 'kwts';
 
-    public function scopeForKwt($query, $id)
+    protected $fillable = [
+        'code',
+        'name',
+        'leader_name',
+        'phone',
+        'address',
+        'village',
+        'district',
+        'city',
+        'province',
+        'latitude',
+        'longitude',
+        'is_active',
+    ];
+
+    protected function casts(): array
     {
-        return $query->when($id, fn ($q) => $q->where('id', $id));
-    }
-
-    public function scopeVisibleTo($query, User $user)
-    {
-        return $user->role === 'admin_kwt' ? $query->where('id', $user->kwt_id ?? 0) : $query;
-    }
-
-    public function commodities()
-    {
-        return $this->hasMany(Commodity::class);
-    }
-
-    public function cycles()
-    {
-        return $this->hasMany(CultivationCycle::class);
+        return [
+            'latitude' => 'decimal:7',
+            'longitude' => 'decimal:7',
+            'is_active' => 'boolean',
+        ];
     }
 
     public function users()
@@ -36,23 +41,13 @@ class Kwt extends Model
         return $this->hasMany(User::class);
     }
 
+    public function cultivationCycles()
+    {
+        return $this->hasMany(CultivationCycle::class);
+    }
+
     public function processedProducts()
     {
         return $this->hasMany(ProcessedProduct::class);
-    }
-
-    public function posts()
-    {
-        return $this->hasMany(Post::class);
-    }
-
-    public function galleries()
-    {
-        return $this->hasMany(Gallery::class);
-    }
-
-    public function scopeActive($q)
-    {
-        return $q->where('status', 'active');
     }
 }

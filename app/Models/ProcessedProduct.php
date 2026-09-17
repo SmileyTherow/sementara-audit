@@ -2,27 +2,44 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 
 class ProcessedProduct extends Model
 {
-    use SoftDeletes;
+    use HasFactory;
 
-    protected $guarded = ['id'];
+    protected $fillable = [
+        'processed_product_category_id',
+        'kwt_id',
+        'name',
+        'description',
+        'image_path',
+        'price',
+        'stock',
+        'unit',
+        'is_available',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'price' => 'decimal:2',
+            'stock' => 'decimal:2',
+            'is_available' => 'boolean',
+        ];
+    }
+
+    public function category()
+    {
+        return $this->belongsTo(
+            ProcessedProductCategory::class,
+            'processed_product_category_id'
+        );
+    }
 
     public function kwt()
     {
         return $this->belongsTo(Kwt::class);
-    }
-
-    public function scopeForKwt($query, $id)
-    {
-        return $query->when($id, fn ($q) => $q->where('kwt_id', $id));
-    }
-
-    public function scopeVisibleTo($query, User $user)
-    {
-        return $user->role === 'admin_kwt' ? $query->where('kwt_id', $user->kwt_id ?? 0) : $query;
     }
 }

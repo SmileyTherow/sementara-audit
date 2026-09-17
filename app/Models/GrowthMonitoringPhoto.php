@@ -2,14 +2,21 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class GrowthMonitoringPhoto extends Model
 {
-    protected $guarded = ['id'];
+    use HasFactory;
 
-    public function monitoring()
+    protected $fillable = [
+        'growth_monitoring_id',
+        'file_path',
+        'caption',
+    ];
+
+    public function growthMonitoring()
     {
-        return $this->belongsTo(GrowthMonitoring::class, 'growth_monitoring_id');
+        return $this->belongsTo(GrowthMonitoring::class);
     }
 }

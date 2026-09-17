@@ -2,34 +2,37 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class HarvestAvailability extends Model
 {
-    protected $guarded = ['id'];
+    use HasFactory;
 
-    public function kwt()
+    protected $fillable = [
+        'harvest_id',
+        'available_quantity',
+        'reserved_quantity',
+        'sold_quantity',
+        'unit',
+        'available_from',
+        'available_until',
+        'status',
+    ];
+
+    protected function casts(): array
     {
-        return $this->belongsTo(Kwt::class);
+        return [
+            'available_quantity' => 'decimal:2',
+            'reserved_quantity' => 'decimal:2',
+            'sold_quantity' => 'decimal:2',
+            'available_from' => 'date',
+            'available_until' => 'date',
+        ];
     }
 
-    public function scopeForKwt($query, $id)
+    public function harvest()
     {
-        return $query->when($id, fn ($q) => $q->where('kwt_id', $id));
-    }
-
-    public function scopeVisibleTo($query, User $user)
-    {
-        return $user->role === 'admin_kwt' ? $query->where('kwt_id', $user->kwt_id ?? 0) : $query;
-    }
-
-    public function commodity()
-    {
-        return $this->belongsTo(Commodity::class);
-    }
-
-    public function cycle()
-    {
-        return $this->belongsTo(CultivationCycle::class, 'cultivation_cycle_id');
+        return $this->belongsTo(Harvest::class);
     }
 }

@@ -2,57 +2,118 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
-use Database\Factories\UserFactory;
+use App\Models\AuditLog;
+use App\Models\HarvestAlert;
+use App\Models\Role;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
 class User extends Authenticatable
 {
-    protected $attributes = ['is_active' => true, 'can_manage_cultivation' => false, 'role' => 'admin_kwt'];
+    use HasFactory, Notifiable, SoftDeletes;
 
-    /** @use HasFactory<UserFactory> */
-    use HasFactory, Notifiable;
-
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var list<string>
-     */
     protected $fillable = [
         'name',
         'email',
+        'phone',
         'password',
-        'kwt_id', 'role', 'is_active', 'can_manage_cultivation',
+        'kwt_id',
+        'is_active',
+        'email_verified_at',
+        'last_login_at',
     ];
 
-    /**
-     * The attributes that should be hidden for serialization.
-     *
-     * @var list<string>
-     */
     protected $hidden = [
         'password',
         'remember_token',
     ];
 
-    /**
-     * Get the attributes that should be cast.
-     *
-     * @return array<string, string>
-     */
     protected function casts(): array
     {
         return [
             'email_verified_at' => 'datetime',
+            'last_login_at' => 'datetime',
             'password' => 'hashed',
-            'is_active' => 'boolean', 'can_manage_cultivation' => 'boolean',
+            'is_active' => 'boolean',
         ];
     }
 
     public function kwt()
     {
         return $this->belongsTo(Kwt::class);
+    }
+
+    public function roles()
+    {
+        return $this->belongsToMany(Role::class, 'role_user')
+            ->withTimestamps();
+    }
+
+    public function cultivationCyclesCreated()
+    {
+        return $this->hasMany(CultivationCycle::class, 'created_by');
+    }
+
+    public function cultivationCyclesUpdated()
+    {
+        return $this->hasMany(CultivationCycle::class, 'updated_by');
+    }
+
+    public function growthMonitorings()
+    {
+        return $this->hasMany(GrowthMonitoring::class, 'created_by');
+    }
+
+    public function harvestsCreated()
+    {
+        return $this->hasMany(Harvest::class, 'created_by');
+    }
+
+    public function harvestsVerified()
+    {
+        return $this->hasMany(Harvest::class, 'verified_by');
+    }
+
+    public function harvestAlerts()
+    {
+        return $this->hasMany(HarvestAlert::class, 'recipient_user_id');
+    }
+
+    public function auditLogs()
+    {
+        return $this->hasMany(AuditLog::class);
+    }
+
+    public function hasRole(string $roleSlug): bool
+    {
+        return $this->roles()
+            ->where('slug', $roleSlug)
+            ->exists();
+    }
+
+    public function hasPermission(string $permissionSlug): bool
+    {
+        return $this->roles()
+            ->whereHas('permissions', function ($query) use ($permissionSlug) {
+                $query->where('slug', $permissionSlug);
+            })
+            ->exists();
+    }
+
+    public function isSuperAdmin(): bool
+    {
+        return $this->hasRole('super_admin');
+    }
+
+    public function isOperatorKwt(): bool
+    {
+        return $this->hasRole('operator_kwt');
+    }
+
+    public function isKoperasi(): bool
+    {
+        return $this->hasRole('koperasi');
     }
 }

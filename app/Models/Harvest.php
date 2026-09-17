@@ -2,43 +2,51 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Harvest extends Model
 {
-    use SoftDeletes;
+    use HasFactory;
 
-    protected $guarded = ['id'];
-
-    public function kwt()
-    {
-        return $this->belongsTo(Kwt::class);
-    }
-
-    public function scopeForKwt($query, $id)
-    {
-        return $query->when($id, fn ($q) => $q->where('kwt_id', $id));
-    }
-
-    public function scopeVisibleTo($query, User $user)
-    {
-        return $user->role === 'admin_kwt' ? $query->where('kwt_id', $user->kwt_id ?? 0) : $query;
-    }
+    protected $fillable = [
+        'cultivation_cycle_id',
+        'harvest_date',
+        'predicted_quantity',
+        'realized_quantity',
+        'variance_quantity',
+        'quality_grade',
+        'status',
+        'notes',
+        'created_by',
+        'verified_by',
+        'verified_at',
+    ];
 
     protected function casts(): array
     {
-        return ['harvest_date' => 'date'];
+        return [
+            'harvest_date' => 'date',
+            'predicted_quantity' => 'decimal:2',
+            'realized_quantity' => 'decimal:2',
+            'variance_quantity' => 'decimal:2',
+            'verified_at' => 'datetime',
+        ];
     }
 
-    public function cycle()
+    public function cultivationCycle()
     {
-        return $this->belongsTo(CultivationCycle::class, 'cultivation_cycle_id');
+        return $this->belongsTo(CultivationCycle::class);
     }
 
-    public function commodity()
+    public function creator()
     {
-        return $this->belongsTo(Commodity::class);
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function verifier()
+    {
+        return $this->belongsTo(User::class, 'verified_by');
     }
 
     public function details()
@@ -51,13 +59,13 @@ class Harvest extends Model
         return $this->hasMany(HarvestPhoto::class);
     }
 
-    public function availabilities()
+    public function availability()
     {
-        return $this->hasMany(HarvestAvailability::class);
+        return $this->hasOne(HarvestAvailability::class);
     }
 
-    public function scopeWithinPeriod($q, $start, $end)
+    public function alerts()
     {
-        return $q->whereBetween('harvest_date', [$start, $end]);
+        return $this->hasMany(HarvestAlert::class);
     }
 }
