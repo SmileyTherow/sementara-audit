@@ -14,17 +14,17 @@ Route::get('/', [PublicController::class, 'home'])->name('home');
 Route::view('/tentang', 'public.about');
 Route::view('/kontak', 'public.contact');
 Route::get('/kwt', [PublicController::class, 'kwts']);
-Route::get('/kwt/{kwt:slug}', [PublicController::class, 'kwt']);
+Route::get('/kwt/{kwt}', [PublicController::class, 'kwt']);
 Route::get('/komoditas', [PublicController::class, 'commoditiesPage']);
-Route::get('/komoditas/{commodity:slug}', [PublicController::class, 'commodity']);
+Route::get('/komoditas/{commodity}', [PublicController::class, 'commodity']);
 foreach (['sedang-ditanam' => 'Sedang Ditanam', 'segera-panen' => 'Segera Panen', 'ready' => 'Ready'] as $path => $status) {
-    Route::get('/'.$path, fn () => redirect('/komoditas?'.http_build_query(['status' => $status])));
+    Route::get('/' . $path, fn() => redirect('/komoditas?' . http_build_query(['status' => $status])));
 }
 Route::get('/jadwal-panen', [PublicController::class, 'schedule']);
 Route::get('/produk-olahan', [PublicController::class, 'products']);
-Route::get('/produk-olahan/{product:slug}', [PublicController::class, 'product']);
-Route::get('/kegiatan', [PublicController::class, 'posts']);
-Route::get('/kegiatan/{post:slug}', [PublicController::class, 'post']);
+Route::get('/produk-olahan/{product}', [PublicController::class, 'product']);
+// Route::get('/kegiatan', [PublicController::class, 'posts']);
+// Route::get('/kegiatan/{post:slug}', [PublicController::class, 'post']);
 Route::get('/whatsapp/{kind}/{id}', [PublicController::class, 'whatsapp'])->middleware('throttle:30,1');
 Route::get('/foto/{kind}/{id}', [CultivationController::class, 'photo'])->name('photo');
 Route::middleware('guest')->group(function () {
@@ -49,6 +49,6 @@ Route::prefix('admin')->middleware(['auth', ActiveUser::class])->group(function 
     Route::get('/manage/{resource}/create', [ResourceController::class, 'create']);
     Route::post('/manage/{resource}', [ResourceController::class, 'store']);
     Route::get('/manage/{resource}/{id}/edit', [ResourceController::class, 'edit']);
-    Route::put('/manage/{resource}/{id}',[ResourceController::class, 'update']);
-    Route::delete('/manage/{resource}/{id}',[ResourceController::class, 'destroy']);
+    Route::put('/manage/{resource}/{id}', [ResourceController::class, 'update']);
+    Route::delete('/manage/{resource}/{id}', [ResourceController::class, 'destroy']);
 });

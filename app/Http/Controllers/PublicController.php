@@ -5,134 +5,366 @@ namespace App\Http\Controllers;
 use App\Http\Requests\FilterRequest;
 use App\Models\Commodity;
 use App\Models\CultivationCycle;
-use App\Models\Gallery;
 use App\Models\Kwt;
-use App\Models\Post;
 use App\Models\ProcessedProduct;
 use App\Services\WhatsappMessageService;
 use Illuminate\Http\Request;
-use Illuminate\Pagination\LengthAwarePaginator;
 
 class PublicController extends Controller
 {
-    private function commodities()
+    private function commodityQuery()
     {
-        return Commodity::active()->whereHas('kwt', fn ($q) => $q->active())->with('kwt', 'cycles', 'availabilities');
+        return Commodity::query()
+            ->where('is_active', true)
+            ->whereHas('cultivationCycles.kwt', function ($query) {
+                $query->where('is_active', true);
+            })
+            ->with([
+                'category',
+                'cultivationCycles' => function ($query) {
+                    $query->with([
+                        'kwt',
+                        'harvests.availability',
+                        'growthMonitorings.photos',
+                    ])->latest('id');
+                },
+            ]);
     }
 
     private function productQuery()
     {
-        return ProcessedProduct::where('is_active', true)->whereHas('kwt', fn ($q) => $q->active())->with('kwt');
-    }
-
-    private function postQuery()
-    {
-        return Post::where('status', 'published')->where('published_at', '<=', now())->where(fn ($q) => $q->whereNull('kwt_id')->orWhereHas('kwt', fn ($q) => $q->active()));
+        return ProcessedProduct::query()
+            ->where('is_available', true)
+            ->whereHas('kwt', function ($query) {
+                $query->where('is_active', true);
+            })
+            ->with(['kwt', 'category']);
     }
 
     public function home()
     {
-        $all = $this->commodities()->get()->filter(fn ($c) => ! in_array($c->public_state['status'], ['Tidak Aktif', 'Habis']));
-        $featured = $all->sortBy(fn ($c) => array_search($c->public_state['status'], ['Ready', 'Pre-Order', 'Segera Panen', 'Sedang Ditanam']))->take(4);
-        $kwts = Kwt::active()->withCount('commodities')->take(3)->get();
-        $products = $this->productQuery()->take(3)->get();
-        $posts = $this->postQuery()->latest('published_at')->take(3)->get();
-        $schedule = CultivationCycle::active()->whereHas('kwt', fn ($q) => $q->active())->whereHas('commodity', fn ($q) => $q->active())->with('commodity', 'kwt')->orderBy('expected_harvest_date')->take(4)->get();
+        $all = $this->commodityQuery()
+            ->get()
+            ->filter(fn (Commodity $commodity) => ! in_array(
+                $commodity->public_state['status'],
+                ['Tidak Aktif', 'Habis'],
+                true
+            ));
 
-        return view('public.home', compact('all', 'featured', 'kwts', 'products', 'posts', 'schedule'));
+        $featured = $all
+            ->sortBy(function (Commodity $commodity) {
+                return array_search(
+                    $commodity->public_state['status'],
+                    ['Ready', 'Pre-Order', 'Segera Panen', 'Sedang Ditanam'],
+                    true
+                );
+            })
+            ->take(4);
+
+        $kwts = Kwt::query()
+            ->where('is_active', true)
+            ->withCount('cultivationCycles')
+            ->take(3)
+            ->get();
+
+        $products = $this->productQuery()
+            ->take(3)
+            ->get();
+
+        $schedule = CultivationCycle::query()
+            ->whereIn('status', [
+                'planned',
+                'planted',
+                'growing',
+                'ready_to_harvest',
+            ])
+            ->whereNotNull('estimated_harvest_date')
+            ->whereHas('kwt', fn ($query) => $query->where('is_active', true))
+            ->with(['commodity', 'kwt'])
+            ->orderBy('estimated_harvest_date')
+            ->take(4)
+            ->get();
+
+        // Fitur posts belum tersedia pada schema baru.
+        $posts = collect();
+
+        return view('public.home', compact(
+            'all',
+            'featured',
+            'kwts',
+            'products',
+            'posts',
+            'schedule'
+        ));
     }
 
     public function commoditiesPage(FilterRequest $request)
     {
-        // ponytail: municipal catalog statuses are filtered in memory; move predicates to SQL if catalog size makes this costly.
-        $all = $this->commodities()->when($request->q, fn ($q, $v) => $q->where('name', 'like', '%'.$v.'%'))->when($request->kwt_id, fn ($q, $v) => $q->where('kwt_id', $v))->get()->filter(fn ($c) => ! in_array($c->public_state['status'], ['Tidak Aktif', 'Habis']))->filter(fn ($c) => ! $request->status || $c->public_state['status'] === $request->status);
-        $records = new LengthAwarePaginator($all->forPage($request->integer('page', 1), 12)->values(), $all->count(), 12, $request->integer('page', 1), ['path' => $request->url(), 'query' => $request->query()]);
+        $records = $this->commodityQuery()
+            ->when($request->q, fn ($query, $value) => $query->where(
+                'name',
+                'like',
+                '%' . $value . '%'
+            ))
+            ->get()
+            ->filter(function (Commodity $commodity) use ($request) {
+                $status = $commodity->public_state['status'];
+
+                return ! in_array($status, ['Tidak Aktif', 'Habis'], true)
+                    && (! $request->status || $status === $request->status);
+            })
+            ->values();
 
         return view('public.catalog', compact('records'));
     }
 
     public function commodity(Commodity $commodity)
     {
-        $commodity->load('kwt', 'cycles.monitorings.photos', 'availabilities');
-        $state = $commodity->public_state;
-        abort_if(in_array($state['status'], ['Tidak Aktif', 'Habis']), 404);
-        $cycle = $state['cycle'] ?? $commodity->cycles->sortByDesc('id')->first();
+        abort_unless($commodity->is_active, 404);
 
-        return view('public.commodity', compact('commodity', 'state', 'cycle'));
+        $commodity->load([
+            'category',
+            'cultivationCycles.kwt',
+            'cultivationCycles.harvests.availability',
+            'cultivationCycles.growthMonitorings.photos',
+        ]);
+
+        $state = $commodity->public_state;
+
+        abort_if(
+            in_array($state['status'], ['Tidak Aktif', 'Habis'], true),
+            404
+        );
+
+        $cycle = $state['cycle']
+            ?? $commodity->cultivationCycles->sortByDesc('id')->first();
+
+        return view('public.commodity', compact(
+            'commodity',
+            'state',
+            'cycle'
+        ));
     }
 
     public function kwts(FilterRequest $request)
     {
-        $records = Kwt::active()->with('commodities.cycles', 'commodities.availabilities')->when($request->kwt_id, fn ($q, $v) => $q->whereKey($v))->when($request->q, fn ($q, $v) => $q->where('name', 'like', '%'.$v.'%'))->when($request->district, fn ($q, $v) => $q->where('district', $v))->when($request->village, fn ($q, $v) => $q->where('village', $v))->paginate(12)->withQueryString();
+        $records = Kwt::query()
+            ->where('is_active', true)
+            ->with([
+                'cultivationCycles.commodity',
+                'processedProducts',
+            ])
+            ->when(
+                $request->kwt_id,
+                fn ($query, $value) => $query->whereKey($value)
+            )
+            ->when(
+                $request->q,
+                fn ($query, $value) => $query->where(
+                    'name',
+                    'like',
+                    '%' . $value . '%'
+                )
+            )
+            ->when(
+                $request->district,
+                fn ($query, $value) => $query->where('district', $value)
+            )
+            ->when(
+                $request->village,
+                fn ($query, $value) => $query->where('village', $value)
+            )
+            ->paginate(12)
+            ->withQueryString();
 
         return view('public.kwts', compact('records'));
     }
 
     public function kwt(Kwt $kwt)
     {
-        abort_unless($kwt->status === 'active', 404);
-        $kwt->load('commodities.cycles', 'commodities.availabilities', 'processedProducts');
-        $commodities = $kwt->commodities->filter(fn ($c) => ! in_array($c->public_state['status'], ['Tidak Aktif', 'Habis']));
-        $posts = $this->postQuery()->where('kwt_id', $kwt->id)->latest('published_at')->get();
-        $galleries = Gallery::where('kwt_id', $kwt->id)->where('published_at', '<=', now())->get();
+        abort_unless($kwt->is_active, 404);
 
-        return view('public.kwt', compact('kwt', 'commodities', 'posts', 'galleries'));
+        $kwt->load([
+            'cultivationCycles.commodity',
+            'processedProducts.category',
+        ]);
+
+        $commodities = $kwt->cultivationCycles
+            ->pluck('commodity')
+            ->unique('id')
+            ->filter(fn (Commodity $commodity) => $commodity->is_active)
+            ->values();
+
+        $posts = collect();
+        $galleries = collect();
+
+        return view('public.kwt', compact(
+            'kwt',
+            'commodities',
+            'posts',
+            'galleries'
+        ));
     }
 
     public function schedule(FilterRequest $request)
     {
-        $records = CultivationCycle::active()->whereHas('kwt', fn ($q) => $q->active())->whereHas('commodity', fn ($q) => $q->active())->with('commodity', 'kwt')->when($request->q, fn ($q, $v) => $q->whereHas('commodity', fn ($c) => $c->where('name', 'like', '%'.$v.'%')))->when($request->start_date, fn ($q, $v) => $q->whereDate('expected_harvest_date', '>=', $v))->when($request->end_date, fn ($q, $v) => $q->whereDate('expected_harvest_date', '<=', $v))->when($request->village, fn ($q, $v) => $q->whereHas('kwt', fn ($k) => $k->where('village', $v)))->when($request->month, fn ($q, $v) => $q->whereMonth('expected_harvest_date', $v))->when($request->year, fn ($q, $v) => $q->whereYear('expected_harvest_date', $v))->when($request->kwt_id, fn ($q, $v) => $q->where('kwt_id', $v))->when($request->commodity_id, fn ($q, $v) => $q->where('commodity_id', $v))->when($request->district, fn ($q, $v) => $q->whereHas('kwt', fn ($k) => $k->where('district', $v)))->orderBy('expected_harvest_date')->paginate(15)->withQueryString();
+        $records = CultivationCycle::query()
+            ->whereIn('status', [
+                'planned',
+                'planted',
+                'growing',
+                'ready_to_harvest',
+            ])
+            ->whereNotNull('estimated_harvest_date')
+            ->whereHas('kwt', fn ($query) => $query->where('is_active', true))
+            ->whereHas('commodity', fn ($query) => $query->where('is_active', true))
+            ->with(['commodity', 'kwt'])
+            ->when(
+                $request->q,
+                fn ($query, $value) => $query->whereHas(
+                    'commodity',
+                    fn ($commodity) => $commodity->where(
+                        'name',
+                        'like',
+                        '%' . $value . '%'
+                    )
+                )
+            )
+            ->when(
+                $request->start_date,
+                fn ($query, $value) => $query->whereDate(
+                    'estimated_harvest_date',
+                    '>=',
+                    $value
+                )
+            )
+            ->when(
+                $request->end_date,
+                fn ($query, $value) => $query->whereDate(
+                    'estimated_harvest_date',
+                    '<=',
+                    $value
+                )
+            )
+            ->when(
+                $request->month,
+                fn ($query, $value) => $query->whereMonth(
+                    'estimated_harvest_date',
+                    $value
+                )
+            )
+            ->when(
+                $request->year,
+                fn ($query, $value) => $query->whereYear(
+                    'estimated_harvest_date',
+                    $value
+                )
+            )
+            ->when(
+                $request->kwt_id,
+                fn ($query, $value) => $query->where('kwt_id', $value)
+            )
+            ->when(
+                $request->commodity_id,
+                fn ($query, $value) => $query->where(
+                    'commodity_id',
+                    $value
+                )
+            )
+            ->orderBy('estimated_harvest_date')
+            ->paginate(15)
+            ->withQueryString();
 
         return view('public.schedule', compact('records'));
     }
 
     public function products(FilterRequest $request)
     {
-        $records = $this->productQuery()->when($request->q, fn ($q, $v) => $q->where('name', 'like', '%'.$v.'%'))->when($request->kwt_id, fn ($q, $v) => $q->where('kwt_id', $v))->paginate(12)->withQueryString();
+        $records = $this->productQuery()
+            ->when(
+                $request->q,
+                fn ($query, $value) => $query->where(
+                    'name',
+                    'like',
+                    '%' . $value . '%'
+                )
+            )
+            ->when(
+                $request->kwt_id,
+                fn ($query, $value) => $query->where(
+                    'kwt_id',
+                    $value
+                )
+            )
+            ->paginate(12)
+            ->withQueryString();
 
         return view('public.products', compact('records'));
     }
 
     public function product(ProcessedProduct $product)
     {
-        abort_unless($product->is_active && $product->kwt?->status === 'active', 404);
+        abort_unless(
+            $product->is_available && $product->kwt?->is_active,
+            404
+        );
+
+        $product->load(['kwt', 'category']);
 
         return view('public.product', compact('product'));
     }
 
-    public function posts(FilterRequest $request)
-    {
-        $records = $this->postQuery()->when($request->q, fn ($q, $v) => $q->where('title', 'like', '%'.$v.'%'))->latest('published_at')->paginate(9)->withQueryString();
+    public function whatsapp(
+        Request $request,
+        string $kind,
+        int $id,
+        WhatsappMessageService $service
+    ) {
+        $data = $request->validate([
+            'quantity' => ['required', 'numeric', 'gt:0', 'max:10000000'],
+        ]);
 
-        return view('public.posts', compact('records'));
-    }
-
-    public function post(Post $post)
-    {
-        abort_unless($this->postQuery()->whereKey($post->id)->exists(), 404);
-
-        return view('public.post', compact('post'));
-    }
-
-    public function whatsapp(Request $request, string $kind, int $id, WhatsappMessageService $service)
-    {
-        $data = $request->validate(['quantity' => 'required|numeric|gt:0|max:10000000']);
-        if ($kind === 'commodity') {
-            $product = $this->commodities()->findOrFail($id);
-            $state = $product->public_state;
-            abort_unless(in_array($state['status'], ['Ready', 'Pre-Order', 'Sedang Ditanam', 'Segera Panen']), 404);
-            $url = match ($state['status']) {
-                'Ready' => $service->buildReadyProductMessage($product, $data['quantity'], $state),
-                'Pre-Order' => $service->buildPreorderMessage($product, $data['quantity'], $state),
-                default => $service->buildGrowingProductMessage($product, $data['quantity'], $state),
-            };
-        } else {
-            abort_unless($kind === 'product',404);
+        if ($kind === 'product') {
             $product = $this->productQuery()->findOrFail($id);
-            abort_unless(in_array($product->availability_status,['available', 'limited']),404);
-            $url = $service->buildProcessedProductMessage($product,$data['quantity']);
+
+            $url = $service->buildProcessedProductMessage(
+                $product,
+                $data['quantity']
+            );
+
+            return redirect()->away($url);
         }
 
+        abort_unless($kind === 'commodity', 404);
+
+        $commodity = $this->commodityQuery()->findOrFail($id);
+        $state = $commodity->public_state;
+
+        abort_unless(
+            in_array(
+                $state['status'],
+                ['Ready', 'Pre-Order', 'Sedang Ditanam', 'Segera Panen'],
+                true
+            ),
+            404
+        );
+
+        $url = $service->buildCommodityMessage(
+            $commodity,
+            $data['quantity'],
+            $state
+        );
+
         return redirect()->away($url);
+    }
+
+    public function posts()
+    {
+        abort(404);
+    }
+
+    public function post()
+    {
+        abort(404);
     }
 }

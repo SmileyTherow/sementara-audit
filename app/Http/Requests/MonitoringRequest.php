@@ -3,40 +3,100 @@
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Validator;
 
 class MonitoringRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()->can('update', $this->route('cycle'));
+        $cycle = $this->route('cycle');
+
+        return $cycle
+            && $this->user()
+            && $this->user()->can('update', $cycle);
     }
 
     public function rules(): array
     {
         $cycle = $this->route('cycle');
+        $plantingDate = $cycle?->planting_date?->toDateString() ?? 'today';
 
-        return ['monitoring_date' => 'required|date|after_or_equal:'.$cycle->start_date->toDateString().'|before_or_equal:today',
-            'alive_plants' => 'nullable|integer|min:0|max:'.$cycle->planting_quantity, 'dead_plants' => 'nullable|integer|min:0|max:'.$cycle->planting_quantity, 'healthy_plants' => 'required|integer|min:0|max:'.$cycle->planting_quantity, 'damaged_plants' => 'nullable|integer|min:0|max:'.$cycle->planting_quantity,
-            'average_height' => 'nullable|numeric|between:0,100000', 'height_unit' => 'required|in:cm,m', 'current_estimated_weight_per_plant' => 'required|numeric|between:0,100000',
-            'condition' => 'nullable|string|max:2000', 'treatment' => 'nullable|string|max:2000', 'fertilizer_notes' => 'nullable|string|max:2000', 'pest_notes' => 'nullable|string|max:2000', 'disease_notes' => 'nullable|string|max:2000', 'general_notes' => 'nullable|string|max:10000',
-            'photos' => 'nullable|array|max:10', 'photos.*' => 'image|mimes:jpg,jpeg,png,webp|max:4096', 'is_public' => 'required|boolean', 'caption' => 'nullable|string|max:255'];
+        return [
+            'monitoring_date' => [
+                'required',
+                'date',
+                'after_or_equal:' . $plantingDate,
+                'before_or_equal:today',
+            ],
+
+            'plant_height' => [
+                'nullable',
+                'numeric',
+                'min:0',
+                'max:100000',
+            ],
+
+            'plant_condition' => [
+                'nullable',
+                'string',
+                'max:100',
+            ],
+
+            'health_status' => [
+                'nullable',
+                'string',
+                'max:100',
+            ],
+
+            'notes' => [
+                'nullable',
+                'string',
+                'max:10000',
+            ],
+
+            'photos' => [
+                'nullable',
+                'array',
+                'max:10',
+            ],
+
+            'photos.*' => [
+                'image',
+                'mimes:jpg,jpeg,png,webp',
+                'max:4096',
+            ],
+
+            'caption' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
+        ];
     }
 
-    public function after(): array
+    public function withValidator(Validator $validator): void
     {
-        return [function ($v) {
-            if ($this->filled('alive_plants') && $this->healthy_plants > $this->alive_plants) {
-                $v->errors()->add('healthy_plants', 'Tanaman sehat melebihi tanaman hidup.');
+        $validator->after(function (Validator $validator) {
+            $cycle = $this->route('cycle');
+
+            if (! $cycle) {
+                return;
             }
-            if ((int) $this->alive_plants + (int) $this->dead_plants > $this->route('cycle')->planting_quantity) {
-                $v->errors()->add('alive_plants', 'Jumlah hidup dan mati melebihi tanaman ditanam.');
+
+            $monitoringDate = $this->date('monitoring_date');
+
+            if (
+                $monitoringDate
+                && $cycle->estimated_harvest_date
+                && $monitoringDate->greaterThan(
+                    $cycle->estimated_harvest_date
+                )
+            ) {
+                $validator->errors()->add(
+                    'monitoring_date',
+                    'Tanggal monitoring melewati estimasi panen.'
+                );
             }
-            if ((int) $this->healthy_plants + (int) $this->damaged_plants > $this->route('cycle')->planting_quantity) {
-                $v->errors()->add('damaged_plants', 'Jumlah sehat dan rusak melebihi tanaman ditanam.');
-            }
-            if (is_numeric($this->healthy_plants) && is_numeric($this->current_estimated_weight_per_plant) && $this->healthy_plants * $this->current_estimated_weight_per_plant > 99999999999) {
-                $v->errors()->add('current_estimated_weight_per_plant', 'Proyeksi melampaui kapasitas pencatatan.');
-            }
-        }];
+        });
     }
 }

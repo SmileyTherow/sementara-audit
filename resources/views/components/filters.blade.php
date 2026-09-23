@@ -1,9 +1,236 @@
-@props(['period'=>false,'status'=>false,'location'=>false,'commodity'=>false])
-@php($internal = request()->is('admin*'))
-<form method="get" class="filters no-print"><div class="field"><label for="q">Cari</label><input id="q" name="q" value="{{ request('q') }}" placeholder="Cari nama atau kode..."></div>
-<div class="field"><label for="filter-kwt">KWT</label><select id="filter-kwt" name="kwt_id"><option value="">Semua KWT</option>@foreach(\App\Models\Kwt::query()->when(!$internal,fn($q)=>$q->active())->when($internal && auth()->check() && auth()->user()->role==='admin_kwt',fn($q)=>$q->whereKey(auth()->user()->kwt_id??0))->get() as $k)<option value="{{ $k->id }}" @selected(request('kwt_id')==$k->id)>{{ $k->name }}</option>@endforeach</select></div>
-@if($commodity)<div class="field"><label for="filter-commodity">Komoditas</label><select id="filter-commodity" name="commodity_id"><option value="">Semua komoditas</option>@foreach(\App\Models\Commodity::query()->when(!$internal,fn($q)=>$q->publiclyActive())->when($internal && auth()->check() && auth()->user()->role==='admin_kwt',fn($q)=>$q->where('kwt_id',auth()->user()->kwt_id??0))->get() as $c)<option value="{{ $c->id }}" @selected(request('commodity_id')==$c->id)>{{ $c->name }} · {{ $c->kwt->name }}</option>@endforeach</select></div>@endif
-@if($status)<div class="field"><label for="filter-status">Status</label><select name="status" id="filter-status"><option value="">Semua status</option>@foreach(is_array($status)?$status:['draft','seedling','growing','near_harvest','harvested','completed','failed','cancelled'] as $s)<option @selected(request('status')===$s)>{{ $s }}</option>@endforeach</select></div>@endif
-@if($location)<div class="field"><label for="district">Kecamatan</label><input name="district" id="district" value="{{ request('district') }}"></div><div class="field"><label for="village">Kelurahan</label><input name="village" id="village" value="{{ request('village') }}"></div>@endif
-@if($period)<div class="field"><label for="start_date">Dari tanggal</label><input type="date" id="start_date" name="start_date" value="{{ request('start_date') }}"></div><div class="field"><label for="end_date">Sampai tanggal</label><input type="date" id="end_date" name="end_date" value="{{ request('end_date') }}"></div><div class="field"><label for="month">Bulan</label><input type="number" min="1" max="12" id="month" name="month" value="{{ request('month') }}" placeholder="1–12"></div><div class="field"><label for="year">Tahun</label><input type="number" min="1900" max="2100" name="year" id="year" value="{{ request('year') }}" placeholder="{{ now()->year }}"></div>@endif
-<button class="btn" type="submit">Terapkan</button><a class="text-button" href="{{ request()->url() }}">Reset</a></form>
+@props([
+    'period' => false,
+    'status' => false,
+    'location' => false,
+    'commodity' => false,
+    'kwt' => false,
+])
+
+@php
+    $internal = request()->is('admin*');
+    $user = auth()->user();
+
+    $kwtQuery = \App\Models\Kwt::query()
+        ->orderBy('name');
+
+    if (
+        $internal
+        && $user
+        && $user->isOperatorKwt()
+    ) {
+        $kwtQuery->whereKey($user->kwt_id ?? 0);
+    }
+
+    $kwts = $kwtQuery->get();
+
+    $commodityQuery = \App\Models\Commodity::query()
+        ->where('is_active', true)
+        ->with('cultivationCycles.kwt')
+        ->orderBy('name');
+
+    if (
+        $internal
+        && $user
+        && $user->isOperatorKwt()
+    ) {
+        $commodityQuery->whereHas(
+            'cultivationCycles',
+            fn ($query) => $query->where(
+                'kwt_id',
+                $user->kwt_id ?? 0
+            )
+        );
+    }
+
+    $commodities = $commodityQuery->get();
+
+    $statusOptions = is_array($status)
+        ? $status
+        : [
+            'planned',
+            'planted',
+            'growing',
+            'ready_to_harvest',
+            'harvested',
+            'completed',
+            'cancelled',
+        ];
+@endphp
+
+<form
+    method="GET"
+    action="{{ url()->current() }}"
+    class="filters no-print"
+>
+    <div class="field">
+        <label for="filter-q">Cari</label>
+
+        <input
+            id="filter-q"
+            name="q"
+            type="search"
+            value="{{ request('q') }}"
+            placeholder="Cari nama atau kode..."
+        >
+    </div>
+
+    @if($kwt)
+        <div class="field">
+            <label for="filter-kwt">KWT</label>
+
+            <select
+                id="filter-kwt"
+                name="kwt_id"
+            >
+                <option value="">Semua KWT</option>
+
+                @foreach($kwts as $kwtOption)
+                    <option
+                        value="{{ $kwtOption->id }}"
+                        @selected(
+                            (string) request('kwt_id')
+                            === (string) $kwtOption->id
+                        )
+                    >
+                        {{ $kwtOption->name }}
+                    </option>
+                @endforeach
+            </select>
+        </div>
+    @endif
+
+    @if($commodity)
+        <div class="field">
+            <label for="filter-commodity">Komoditas</label>
+
+            <select
+                id="filter-commodity"
+                name="commodity_id"
+            >
+                <option value="">Semua Komoditas</option>
+
+                @foreach($commodities as $commodityOption)
+                    <option
+                        value="{{ $commodityOption->id }}"
+                        @selected(
+                            (string) request('commodity_id')
+                            === (string) $commodityOption->id
+                        )
+                    >
+                        {{ $commodityOption->name }}
+                    </option>
+                @endforeach
+            </select>
+        </div>
+    @endif
+
+    @if($status)
+        <div class="field">
+            <label for="filter-status">Status</label>
+
+            <select
+                id="filter-status"
+                name="status"
+            >
+                <option value="">Semua Status</option>
+
+                @foreach($statusOptions as $statusOption)
+                    <option
+                        value="{{ $statusOption }}"
+                        @selected(
+                            request('status') === $statusOption
+                        )
+                    >
+                        {{ ucfirst(str_replace('_', ' ', $statusOption)) }}
+                    </option>
+                @endforeach
+            </select>
+        </div>
+    @endif
+
+    @if($location)
+        <div class="field">
+            <label for="filter-district">Kecamatan</label>
+
+            <input
+                id="filter-district"
+                name="district"
+                value="{{ request('district') }}"
+            >
+        </div>
+
+        <div class="field">
+            <label for="filter-village">Kelurahan/Desa</label>
+
+            <input
+                id="filter-village"
+                name="village"
+                value="{{ request('village') }}"
+            >
+        </div>
+    @endif
+
+    @if($period)
+        <div class="field">
+            <label for="filter-start-date">Dari Tanggal</label>
+
+            <input
+                id="filter-start-date"
+                type="date"
+                name="start_date"
+                value="{{ request('start_date') }}"
+            >
+        </div>
+
+        <div class="field">
+            <label for="filter-end-date">Sampai Tanggal</label>
+
+            <input
+                id="filter-end-date"
+                type="date"
+                name="end_date"
+                value="{{ request('end_date') }}"
+            >
+        </div>
+
+        <div class="field">
+            <label for="filter-month">Bulan</label>
+
+            <input
+                id="filter-month"
+                type="number"
+                min="1"
+                max="12"
+                name="month"
+                value="{{ request('month') }}"
+            >
+        </div>
+
+        <div class="field">
+            <label for="filter-year">Tahun</label>
+
+            <input
+                id="filter-year"
+                type="number"
+                min="1900"
+                max="2100"
+                name="year"
+                value="{{ request('year') }}"
+            >
+        </div>
+    @endif
+
+    <button
+        class="btn"
+        type="submit"
+    >
+        Terapkan
+    </button>
+
+    <a
+        class="text-button"
+        href="{{ url()->current() }}"
+    >
+        Reset
+    </a>
+</form>

@@ -4,100 +4,295 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\FilterRequest;
 use App\Http\Requests\ResourceRequest;
+use Illuminate\Support\Facades\Storage;
 use App\Models\Commodity;
 use App\Models\CommodityCategory;
 use App\Models\Kwt;
 use App\Models\ProcessedProductCategory;
-use App\Services\AuditService;
-use App\Services\CultivationService;
+use App\Models\Role;
 use App\Support\Resources;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 
 class ResourceController extends Controller
 {
-    private function access(string $resource, bool $write = false): array
+    private function definition(string $resource): array
     {
-        $definition = Resources::get($resource);
-        $user = auth()->user();
+        return Resources::get($resource);
+    }
+
+    private function authorizeResource(
+        string $resource,
+        bool $write = false
+    ): void {
+        $user = Auth::user();
+
         if ($resource === 'users') {
             Gate::authorize('manage-users');
         }
+
         if (str_ends_with($resource, 'categories')) {
             Gate::authorize('manage-settings');
         }
-        if ($write && $user->role === 'admin_koperasi' && ! $user->can_manage_cultivation && in_array($resource, ['commodities', 'cycles', 'products'])) {
+
+        if ($write && $user->isKoperasi()) {
             abort(403);
         }
-
-        return $definition;
     }
 
     public function index(FilterRequest $request, string $resource)
     {
-        [$model,$title,$fields] = $this->access($resource);
+        [$model, $title, $fields] = $this->definition($resource);
+
+        $this->authorizeResource($resource);
+
         $query = $model::query();
         $user = $request->user();
-        if ($user->role === 'admin_kwt') {
-            $query->where($resource === 'kwts' ? 'id' : 'kwt_id', $user->kwt_id ?? 0);
-        }
-        $searchField = isset($fields['name']) ? 'name' : (isset($fields['title']) ? 'title' : 'code');
-        $query->when($request->q, fn ($q, $v) => $q->where($searchField, 'like', '%'.$v.'%'));
-        if (isset($fields['status'])) {
-            $query->when($request->status, fn ($q, $v) => $q->where('status', $v));
-        }
-        if ($resource !== 'kwts' && ! str_ends_with($resource, 'categories')) {
-            $query->when($request->kwt_id, fn ($q, $v) => $q->where('kwt_id', $v));
-        }
-        if ($resource === 'cycles') {
-            $query->with('commodity', 'kwt')->when($request->commodity_id, fn ($q, $v) => $q->where('commodity_id', $v))->when($request->month, fn ($q, $v) => $q->whereMonth('start_date', $v))->when($request->year, fn ($q, $v) => $q->whereYear('start_date', $v));
-        }
-        if ($resource === 'kwts') {
-            $query->when($request->district, fn ($q, $v) => $q->where('district', $v))->when($request->village, fn ($q, $v) => $q->where('village', $v));
-        }
-        if ($resource === 'kwts') {
-            $query->when($request->kwt_id, fn ($q, $v) => $q->whereKey($v));
-        }
-        if ($resource === 'cycles') {
-            $query->when($request->start_date, fn ($q, $v) => $q->whereDate('start_date', '>=', $v))->when($request->end_date, fn ($q, $v) => $q->whereDate('start_date', '<=', $v));
-        }
-        $records = $query->latest('id')->paginate(12)->withQueryString();
 
-        return view('admin.index', compact('resource', 'title', 'fields', 'records'));
+        /*
+        * Batasi data Operator KWT ke KWT miliknya sendiri.
+        */
+        if ($user->isOperatorKwt()) {
+            if (in_array($resource, ['kwts', 'cycles', 'products'], true)) {
+                $column = $resource === 'kwts' ? 'id' : 'kwt_id';
+
+                $query->where(
+                    $column,
+                    $user->kwt_id ?? 0
+                );
+            }
+
+            if ($resource === 'commodities') {
+                $query->whereHas(
+                    'cultivationCycles',
+                    fn ($cycleQuery) => $cycleQuery->where(
+                        'kwt_id',
+                        $user->kwt_id ?? 0
+                    )
+                );
+            }
+        }
+
+        /*
+        * Pencarian umum.
+        */
+        if ($request->filled('q')) {
+            $term = trim((string) $request->input('q'));
+
+            $query->where(function ($search) use ($resource, $term) {
+                if (in_array($resource, [
+                    'kwts',
+                    'commodities',
+                    'cycles',
+                ], true)) {
+                    $search
+                        ->where('name', 'like', '%' . $term . '%')
+                        ->orWhere('code', 'like', '%' . $term . '%');
+                }
+
+                if ($resource === 'products') {
+                    $search
+                        ->where('name', 'like', '%' . $term . '%')
+                        ->orWhere('description', 'like', '%' . $term . '%');
+                }
+
+                if (in_array($resource, [
+                    'users',
+                    'commodity-categories',
+                    'product-categories',
+                ], true)) {
+                    $search->where(
+                        'name',
+                        'like',
+                        '%' . $term . '%'
+                    );
+                }
+
+                if ($resource === 'kwts') {
+                    $search
+                        ->orWhere('leader_name', 'like', '%' . $term . '%')
+                        ->orWhere('phone', 'like', '%' . $term . '%')
+                        ->orWhere('district', 'like', '%' . $term . '%')
+                        ->orWhere('village', 'like', '%' . $term . '%')
+                        ->orWhere('city', 'like', '%' . $term . '%');
+                }
+            });
+        }
+
+        /*
+        * Filter KWT.
+        */
+        if ($resource === 'kwts') {
+            if ($request->filled('status')) {
+                $query->where(
+                    'is_active',
+                    $request->input('status') === 'active'
+                );
+            }
+
+            if ($request->filled('district')) {
+                $query->where(
+                    'district',
+                    'like',
+                    '%' . trim($request->input('district')) . '%'
+                );
+            }
+
+            if ($request->filled('village')) {
+                $query->where(
+                    'village',
+                    'like',
+                    '%' . trim($request->input('village')) . '%'
+                );
+            }
+
+            if ($request->filled('kwt_id')) {
+                $query->whereKey($request->input('kwt_id'));
+            }
+        }
+
+        /*
+        * Filter siklus budidaya.
+        */
+        if ($resource === 'cycles') {
+            $query->with(['kwt', 'commodity']);
+
+            if ($request->filled('kwt_id')) {
+                $query->where(
+                    'kwt_id',
+                    $request->input('kwt_id')
+                );
+            }
+
+            if ($request->filled('commodity_id')) {
+                $query->where(
+                    'commodity_id',
+                    $request->input('commodity_id')
+                );
+            }
+
+            if ($request->filled('status')) {
+                $query->where(
+                    'status',
+                    $request->input('status')
+                );
+            }
+        }
+
+        /*
+        * Filter produk.
+        */
+        if ($resource === 'products') {
+            $query->with(['kwt', 'category']);
+
+            if ($request->filled('kwt_id')) {
+                $query->where(
+                    'kwt_id',
+                    $request->input('kwt_id')
+                );
+            }
+        }
+
+        $records = $query
+            ->latest('id')
+            ->paginate(12)
+            ->withQueryString();
+
+        return view('admin.index', compact(
+            'resource',
+            'title',
+            'fields',
+            'records'
+        ));
     }
 
     public function create(string $resource)
     {
-        [$model,$title,$fields] = $this->access($resource, true);
-        abort_if($resource === 'kwts' && auth()->user()->role === 'admin_kwt', 403);
+        [$model, $title, $fields] = $this->definition($resource);
 
-        return $this->form($resource, $title, $fields, new $model);
+        $this->authorizeResource($resource, true);
+
+        $record = new $model();
+
+        return $this->form(
+            $resource,
+            $title,
+            $fields,
+            $record
+        );
     }
 
     public function edit(string $resource, int $id)
     {
-        [$model,$title,$fields] = $this->access($resource, true);
+        [$model, $title, $fields] = $this->definition($resource);
+
+        $this->authorizeResource($resource, true);
+
         $record = $model::findOrFail($id);
-        if ($resource !== 'users' && ! str_ends_with($resource, 'categories')) {
-            Gate::authorize('update', $record);
+
+        if (
+            Auth::user()->isOperatorKwt()
+            && in_array($resource, ['cycles', 'products'], true)
+            && (int) $record->kwt_id !== (int) Auth::user()->kwt_id
+        ) {
+            abort(403);
         }
 
-        return $this->form($resource, $title, $fields, $record);
+        if (
+            Auth::user()->isOperatorKwt()
+            && $resource === 'kwts'
+            && (int) $record->id !== (int) Auth::user()->kwt_id
+        ) {
+            abort(403);
+        }
+
+        return $this->form(
+            $resource,
+            $title,
+            $fields,
+            $record
+        );
     }
 
-    private function form($resource, $title, $fields, $record)
-    {
-        $kwts = Kwt::query()->when(auth()->user()->role === 'admin_kwt', fn ($q) => $q->whereKey(auth()->user()->kwt_id ?? 0))->get();
-        $commodities = Commodity::visibleTo(auth()->user())->get();
-        $categories = $resource === 'products' ? ProcessedProductCategory::all() : CommodityCategory::all();
-        if ($resource === 'cycles' && $record->exists) {
-            $fields = array_intersect_key($fields, array_flip(['status', 'status_reason', 'preorder_enabled', 'person_in_charge', 'notes']));
-        }
+    private function form(
+        string $resource,
+        string $title,
+        array $fields,
+        $record
+    ) {
+        $user = Auth::user();
 
-        return view('admin.form', compact('resource', 'title', 'fields', 'record', 'kwts', 'commodities', 'categories'));
+        $kwts = Kwt::query()
+            ->when(
+                $user->isOperatorKwt(),
+                fn ($q) => $q->whereKey($user->kwt_id ?? 0)
+            )
+            ->get();
+
+        $commodities = Commodity::query()
+            ->with('category')
+            ->get();
+
+        $categories = match ($resource) {
+            'commodities' => CommodityCategory::query()->get(),
+            'products' => ProcessedProductCategory::query()->get(),
+            default => collect(),
+        };
+
+        return view('admin.form', compact(
+            'resource',
+            'title',
+            'fields',
+            'record',
+            'kwts',
+            'commodities',
+            'categories'
+        ));
     }
 
     public function store(ResourceRequest $request, string $resource)
@@ -105,94 +300,155 @@ class ResourceController extends Controller
         return $this->save($request, $resource);
     }
 
-    public function update(ResourceRequest $request, string $resource, int $id)
-    {
+    public function update(
+        ResourceRequest $request,
+        string $resource,
+        int $id
+    ) {
         return $this->save($request, $resource, $id);
     }
 
-    private function save(ResourceRequest $request, string $resource, ?int $id = null)
-    {
-        [$model] = $this->access($resource, true);
-        $record = $id ? $model::findOrFail($id) : new $model;
-        if ($id && $resource !== 'users' && ! str_ends_with($resource, 'categories')) {
-            Gate::authorize('update', $record);
-        }
-        abort_if(! $id && $resource === 'kwts' && $request->user()->role === 'admin_kwt', 403);
+    private function save(
+        ResourceRequest $request,
+        string $resource,
+        ?int $id = null
+    ) {
+        [$model] = $this->definition($resource);
+
+        $this->authorizeResource($resource, true);
+
+        $record = $id
+            ? $model::findOrFail($id)
+            : new $model();
+
         $data = $request->validated();
+        $roleId = null;
+
+        if (
+            $resource === 'products'
+            && $request->hasFile('image_path')
+        ) {
+            $data['image_path'] = $request
+                ->file('image_path')
+                ->store('products', 'public');
+
+            if (
+                $record->exists
+                && $record->image_path
+            ) {
+                Storage::disk('public')->delete(
+                    $record->image_path
+                );
+            }
+        }
+
         if ($resource === 'users') {
-            if (empty($data['password'])) {
+            $roleSlug = $data['role'];
+            $roleId = Role::where('slug', $roleSlug)->value('id');
+
+            if (! $roleId) {
+                throw ValidationException::withMessages([
+                    'role' => 'Role tidak ditemukan.',
+                ]);
+            }
+
+            if (! empty($data['password'])) {
+                $data['password'] = Hash::make(
+                    $data['password']
+                );
+            } else {
                 unset($data['password']);
             }
-            if ($id === $request->user()->id && ($data['role'] !== 'super_admin' || ! $data['is_active'])) {
-                throw ValidationException::withMessages(['role' => 'Anda tidak dapat menonaktifkan atau menurunkan peran akun sendiri.']);
-            }
-            if ($data['role'] !== 'admin_kwt') {
+
+            if ($roleSlug !== 'operator_kwt') {
                 $data['kwt_id'] = null;
             }
-        }
-        if ($id && $resource === 'commodities' && ($record->cycles()->exists() || $record->availabilities()->exists()) && ($record->yield_unit !== $data['yield_unit'] || (int) $record->kwt_id !== (int) $data['kwt_id'])) {
-            throw ValidationException::withMessages(['yield_unit' => 'KWT dan satuan tidak dapat diubah setelah ada budidaya atau ketersediaan.']);
-        }
-        foreach (['image', 'logo', 'cover_image'] as $field) {
-            if ($request->hasFile($field)) {
-                $data[$field] = $request->file($field)->store('kwts/'.($data['kwt_id'] ?? $record->id ?? 'central').'/'.$resource, 'public');
-            } else {
-                unset($data[$field]);
-            }
-        }
-        if (! $id && in_array($resource, ['kwts', 'commodities', 'products', 'posts'])) {
-            $data['slug'] = Str::slug($data['name'] ?? $data['title']).'-'.Str::lower(Str::random(6));
-        }
-        if ($resource === 'posts') {
-            if (! $id) {
-                $data['created_by'] = $request->user()->id;
-            } if ($data['status'] === 'published' && empty($data['published_at'])) {
-                $data['published_at'] = now();
-            }
-        }
-        DB::transaction(function () use (&$record, $data, $resource, $id, $request) {
-            if ($resource === 'cycles' && ! $id) {
-                $record = app(CultivationService::class)->create(array_filter($data, fn ($v) => $v !== null), $request->user());
 
-                return;
-            }
-            if ($resource === 'cycles') {
-                $data = array_intersect_key($data, array_flip(['status', 'status_reason', 'preorder_enabled', 'person_in_charge', 'notes']));
-            }
-            $old = $record->getAttributes();
+            unset($data['role']);
+        }
+
+        if (
+            $resource === 'cycles'
+            && Auth::user()->isOperatorKwt()
+        ) {
+            $data['kwt_id'] = Auth::user()->kwt_id;
+        }
+
+        if (
+            $resource === 'products'
+            && Auth::user()->isOperatorKwt()
+        ) {
+            $data['kwt_id'] = Auth::user()->kwt_id;
+        }
+
+        if ($resource === 'kwts' && empty($data['code'])) {
+            $data['code'] = 'KWT-' . Str::upper(
+                Str::random(6)
+            );
+        }
+
+        if ($resource === 'commodities' && empty($data['code'])) {
+            $data['code'] = 'COM-' . Str::upper(
+                Str::random(6)
+            );
+        }
+
+        $roleIdForTransaction = $roleId ?? null;
+
+        DB::transaction(function () use (
+            $record,
+            $data,
+            $resource,
+            $roleIdForTransaction
+        ) {
             $record->fill($data)->save();
-            AuditService::record($id ? 'update' : 'create', $record, $old);
+
+            if (
+                $resource === 'users'
+                && $roleIdForTransaction !== null
+            ) {
+                $record->roles()->sync([$roleIdForTransaction]);
+            }
         });
 
-        return redirect($resource === 'cycles' ? '/admin/cycles/'.$record->id : '/admin/manage/'.$resource)->with('success', 'Data berhasil disimpan.');
+        return redirect('/admin/manage/' . $resource)
+            ->with('success', 'Data berhasil disimpan.');
     }
 
     public function destroy(string $resource, int $id)
     {
-        [$model] = $this->access($resource, true);
-        $record = $model::findOrFail($id);
-        if ($resource === 'users') {
-            abort_if($id === auth()->id(), 422, 'Akun sendiri tidak dapat dihapus.');
-            $record->update(['is_active' => false]);
-        } else {
-            Gate::authorize('delete', $record);
-            if ($resource === 'cycles' && ($record->monitorings()->exists() || $record->harvests()->exists())) {
-                return back()->withErrors(['delete' => 'Siklus dengan monitoring/panen tidak dapat dihapus. Gunakan status selesai atau batal.']);
-            }
-            if ($resource === 'kwts' && collect(['users', 'commodities', 'cultivation_cycles', 'harvests', 'harvest_availabilities', 'processed_products', 'posts', 'galleries'])->contains(fn ($table) => DB::table($table)->where('kwt_id', $record->id)->exists())) {
-                return back()->withErrors(['delete' => 'KWT masih memiliki data atau riwayat. Nonaktifkan melalui edit profil.']);
-            }
-            if ($resource === 'commodities' && ($record->cycles()->withTrashed()->exists() || $record->availabilities()->exists())) {
-                return back()->withErrors(['delete' => 'Komoditas memiliki riwayat. Nonaktifkan melalui edit.']);
-            }
-            try {
-                $record->delete();
-            } catch (QueryException $e) {
-                return back()->withErrors(['delete' => 'Data masih digunakan dan tidak dapat dihapus.']);
-            }
-        }
-        AuditService::record('delete',$record);
+        [$model] = $this->definition($resource);
 
-        return back()->with('success','Data berhasil dinonaktifkan/dihapus.');
+        $this->authorizeResource($resource, true);
+
+        $record = $model::findOrFail($id);
+
+        if ($resource === 'users') {
+            abort_if(
+                (int) $id === (int) Auth::id(),
+                422,
+                'Akun sendiri tidak dapat dinonaktifkan.'
+            );
+
+            $record->update(['is_active' => false]);
+
+            return back()->with(
+                'success',
+                'Akun dinonaktifkan.'
+            );
+        }
+
+        try {
+            $record->delete();
+        } catch (QueryException) {
+            return back()->withErrors([
+                'delete' => 'Data masih digunakan dan tidak dapat dihapus.',
+            ]);
+        }
+
+        return back()->with(
+            'success',
+            'Data berhasil dihapus.'
+        );
     }
 }

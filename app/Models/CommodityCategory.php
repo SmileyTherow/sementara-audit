@@ -9,21 +9,9 @@ class CommodityCategory extends Model
 {
     use HasFactory;
 
+    protected $table = 'commodity_categories';
+
     protected $fillable = [
         'name',
-        'description',
-        'is_active',
     ];
-
-    protected function casts(): array
-    {
-        return [
-            'is_active' => 'boolean',
-        ];
-    }
-
-    public function commodities()
-    {
-        return $this->hasMany(Commodity::class);
-    }
 }

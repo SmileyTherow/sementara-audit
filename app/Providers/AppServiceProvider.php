@@ -30,13 +30,28 @@ class AppServiceProvider extends ServiceProvider
         foreach (Resources::all() as [$model]) {
             Gate::policy($model, DomainPolicy::class);
         }
-        foreach ([GrowthMonitoring::class, Harvest::class, HarvestAvailability::class] as $model) {
+
+        foreach ([
+            GrowthMonitoring::class,
+            Harvest::class,
+            HarvestAvailability::class,
+        ] as $model) {
             Gate::policy($model, DomainPolicy::class);
         }
-        Gate::define('manage-users', fn ($u) => $u->is_active && $u->role === 'super_admin');
-        Gate::define('manage-settings', fn ($u) => $u->is_active && in_array($u->role, ['super_admin', 'admin_koperasi']));
-        View::composer('*', function ($view) {
-            $view->with('siteSettings', Setting::pluck('value', 'key'));
+
+        Gate::define('manage-users', function ($user): bool {
+            return $user->is_active && $user->isSuperAdmin();
+        });
+
+        Gate::define('manage-settings', function ($user): bool {
+            return $user->is_active && $user->isSuperAdmin();
+        });
+
+        View::composer('*', function ($view): void {
+            $view->with(
+                'siteSettings',
+                Setting::query()->pluck('value', 'key')
+            );
         });
     }
 }

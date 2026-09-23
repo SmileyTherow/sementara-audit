@@ -2,6 +2,9 @@
 
 namespace App\Policies;
 
+use App\Models\CultivationCycle;
+use App\Models\Harvest;
+use App\Models\HarvestAvailability;
 use App\Models\Kwt;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
@@ -13,15 +16,20 @@ class DomainPolicy
         if (! $user->is_active) {
             return false;
         }
-        if ($user->role !== 'admin_kwt') {
-            return in_array($user->role, ['super_admin', 'admin_koperasi']);
+
+        if ($user->isSuperAdmin() || $user->isKoperasi()) {
+            return true;
         }
-        if ($user->kwt?->status !== 'active') {
+
+        if (! $user->isOperatorKwt()) {
             return false;
         }
-        $kwt = $record instanceof Kwt ? $record->id : ($record->kwt_id ?? $record->cycle?->kwt_id);
 
-        return $user->kwt_id !== null && (int) $kwt === (int) $user->kwt_id;
+        if (! $user->kwt || ! $user->kwt->is_active) {
+            return false;
+        }
+
+        return $this->recordBelongsToKwt($record, $user->kwt_id);
     }
 
     public function update(User $user, Model $record): bool
@@ -30,11 +38,60 @@ class DomainPolicy
             return false;
         }
 
-        return $user->role !== 'admin_koperasi' || $user->can_manage_cultivation || in_array(class_basename($record), ['Kwt', 'HarvestAvailability', 'Post', 'Gallery']);
+        if ($user->isSuperAdmin()) {
+            return true;
+        }
+
+        if ($user->isKoperasi()) {
+            return $record instanceof HarvestAvailability;
+        }
+
+        return $user->isOperatorKwt()
+            && ! $record instanceof Kwt;
     }
 
     public function delete(User $user, Model $record): bool
     {
-        return $this->update($user, $record) && ! ($record instanceof Kwt && $user->role === 'admin_kwt');
+        if (! $this->update($user, $record)) {
+            return false;
+        }
+
+        if ($user->isOperatorKwt() && $record instanceof Kwt) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function recordBelongsToKwt(
+        Model $record,
+        ?int $kwtId
+    ): bool {
+        if (! $kwtId) {
+            return false;
+        }
+
+        if ($record instanceof Kwt) {
+            return (int) $record->id === (int) $kwtId;
+        }
+
+        if ($record instanceof CultivationCycle) {
+            return (int) $record->kwt_id === (int) $kwtId;
+        }
+
+        if ($record instanceof Harvest) {
+            return (int) $record->cultivationCycle?->kwt_id === (int) $kwtId;
+        }
+
+        if ($record instanceof HarvestAvailability) {
+            return (int) $record->harvest?->cultivationCycle?->kwt_id
+                === (int) $kwtId;
+        }
+
+        if (isset($record->kwt_id)) {
+            return (int) $record->kwt_id === (int) $kwtId;
+        }
+
+        return false;
     }
 }

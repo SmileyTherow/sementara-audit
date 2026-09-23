@@ -61,7 +61,21 @@ class CultivationCycle extends Model
 
     public function growthMonitorings()
     {
-        return $this->hasMany(GrowthMonitoring::class);
+        return $this->hasMany(
+            GrowthMonitoring::class,
+            'cultivation_cycle_id'
+        );
+    }
+
+    /*
+     * Alias yang dipakai oleh CultivationController.
+     */
+    public function monitorings()
+    {
+        return $this->hasMany(
+            GrowthMonitoring::class,
+            'cultivation_cycle_id'
+        );
     }
 
     public function harvests()
