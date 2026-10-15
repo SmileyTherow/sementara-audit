@@ -59,7 +59,7 @@ class PublicController extends Controller
                     true
                 );
             })
-            ->take(4);
+            ->take(12);
 
         $kwts = Kwt::query()
             ->where('is_active', true)
@@ -296,7 +296,7 @@ class PublicController extends Controller
                     $value
                 )
             )
-            ->paginate(12)
+            ->paginate(15)
             ->withQueryString();
 
         return view('public.products', compact('records'));

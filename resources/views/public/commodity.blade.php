@@ -11,11 +11,7 @@
 
         <div class="commodity-detail-grid">
             <div class="commodity-visual">
-                <img
-                    class="detail-image"
-                    src="{{ asset('images/garden.svg') }}"
-                    alt="{{ $commodity->name }}"
-                >
+                <x-product-gallery :record="$commodity" />
             </div>
 
             <div class="detail-info commodity-info">
@@ -28,18 +24,9 @@
                         ?? $commodity->cultivationCycles->first()?->kwt;
                 @endphp
 
-                <a class="text-link" href="{{ url('/kwt/' . ($kwt?->id ?? 0)) }}">
-                    {{ $kwt?->name ?? 'KWT Tangerang' }} →
-                </a>
+                <x-kwt-origin :kwt="$kwt" />
 
-                <p class="muted">
-                    📍 {{ $kwt?->district ?? 'Tangerang' }},
-                    {{ $kwt?->village ?? '-' }}
-                </p>
-
-                <p class="prose">
-                    {{ $commodity->description ?? 'Belum ada deskripsi komoditas.' }}
-                </p>
+                <x-catalog-description :text="$commodity->description ?? 'Belum ada deskripsi komoditas.'" />
 
                 <div class="detail-values">
                     <div>
@@ -122,6 +109,7 @@
                                     'Ready' => 'Pesan',
                                     'Pre-Order' => 'Pre-Order',
                                     default => 'Tanyakan Pemesanan'
+                                }
                                 }} via WhatsApp →
                             </button>
                         </form>
@@ -139,7 +127,7 @@
 
                 @foreach($cycle->growthMonitorings as $monitor)
                     @php
-                        $photos = $monitor->photos;
+                        $photos = $monitor->photos->where('is_public', true);
                     @endphp
 
                     @if($photos->isNotEmpty())
@@ -152,7 +140,7 @@
                                 @foreach($photos as $photo)
                                     <figure>
                                         <img
-                                            src="{{ asset('images/garden.svg') }}"
+                                            src="{{ route('photo', ['kind' => 'monitoring', 'id' => $photo->id]) }}"
                                             alt="{{ $photo->caption ?? 'Perkembangan tanaman' }}"
                                             loading="lazy"
                                         >

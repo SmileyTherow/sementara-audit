@@ -11,6 +11,7 @@ class Commodity extends Model
     use HasFactory, SoftDeletes;
 
     protected $fillable = [
+        'image_path', 'image_path_2', 'image_path_3', 'image_path_4', 'image_path_5',
         'commodity_category_id',
         'code',
         'name',

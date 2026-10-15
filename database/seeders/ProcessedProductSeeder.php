@@ -18,20 +18,22 @@ class ProcessedProductSeeder extends Seeder
 
         $products = [
             [
-                'name' => 'Cabai Segar KWT Mawar',
-                'category' => 'Sayuran Segar',
+                'name' => 'Saus Tomat KWT Mawar',
+                'category' => 'Produk Olahan',
                 'kwt' => 'KWT-001',
-                'price' => 35000,
-                'stock' => 102,
-                'unit' => 'kg',
+                'price' => 15000,
+                'stock' => 20,
+                'unit' => 'botol',
+                'description' => 'Saus berbahan tomat untuk pelengkap masakan, cocolan, dan aneka hidangan rumahan.',
             ],
             [
-                'name' => 'Kangkung Segar KWT Melati',
-                'category' => 'Sayuran Segar',
+                'name' => 'Keripik Pisang KWT Melati',
+                'category' => 'Produk Olahan',
                 'kwt' => 'KWT-002',
-                'price' => 3000,
-                'stock' => 38,
-                'unit' => 'ikat',
+                'price' => 12000,
+                'stock' => 30,
+                'unit' => 'bungkus',
+                'description' => 'Irisan pisang yang diolah menjadi keripik renyah untuk teman bersantai atau suguhan di rumah.',
             ],
             [
                 'name' => 'Sambal Olahan KWT',
@@ -40,6 +42,7 @@ class ProcessedProductSeeder extends Seeder
                 'price' => 18000,
                 'stock' => 25,
                 'unit' => 'botol',
+                'description' => 'Sambal olahan bercita rasa pedas untuk melengkapi nasi, lauk, dan hidangan sehari-hari.',
             ],
         ];
 
@@ -49,7 +52,7 @@ class ProcessedProductSeeder extends Seeder
                 [
                     'processed_product_category_id' => $categories[$product['category']],
                     'kwt_id' => $kwts[$product['kwt']],
-                    'description' => 'Produk demo siap jual.',
+                    'description' => \App\Support\CatalogDescriptions::product($product['name']) ?? $product['description'],
                     'image_path' => null,
                     'price' => $product['price'],
                     'stock' => $product['stock'],

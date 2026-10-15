@@ -1,5 +1,11 @@
 # KWT Kota Tangerang
 
+## Pembaruan branch update — 14–15 Oktober 2026
+
+Branch ini berisi pembaruan katalog 12 komoditas dan 15 produk olahan, lima slot foto per produk, galeri thumbnail, perbaikan layout/URL subfolder, serta deskripsi produk yang diperluas. Lihat [indeks dokumentasi](docs/README.md), [seluruh perubahan](docs/UPDATE-2026-10-14-15.md), dan [panduan instalasi branch update](docs/DEPLOY-UPDATE.md).
+
+Bagian README di bawah berasal dari implementasi awal dan beberapa detail akun/schema di dalamnya sudah berbeda. Untuk branch ini, gunakan panduan deployment di atas. Lima foto memakai JPG/PNG/WebP maksimal 4 MB per foto. Aset katalog sudah tersedia lokal dan dapat diisi ke database melalui seeder.
+
 Sistem Informasi Budidaya, Panen, dan Ketersediaan Produk Kelompok Wanita Tani Kota Tangerang.
 
 Laravel 12 + MySQL + Blade + Tailwind CSS 4 + Vite. Zona waktu `Asia/Jakarta`, antarmuka Bahasa Indonesia. Pembelian dilakukan melalui WhatsApp koperasi; tidak ada keranjang, checkout, pembayaran, atau tabel pesanan pelanggan.

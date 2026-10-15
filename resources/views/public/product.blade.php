@@ -1,11 +1,7 @@
 <x-layout :title="$product->name">
     <section class="section">
         <div class="grid-2">
-            <img
-                class="detail-image"
-                src="{{ $product->image_path ? Storage::url($product->image_path) : asset('images/garden.svg') }}"
-                alt="{{ $product->name }}"
-            >
+            <x-product-gallery :record="$product" :packaged="true" />
 
             <div class="detail-info">
                 <span class="eyebrow">
@@ -22,9 +18,9 @@
                     @endif
                 </div>
 
-                <p class="prose">
-                    {{ $product->description }}
-                </p>
+                <x-catalog-description :text="$product->description" />
+
+                <x-kwt-origin :kwt="$product->kwt" />
 
                 @if($product->price !== null)
                     <h3>

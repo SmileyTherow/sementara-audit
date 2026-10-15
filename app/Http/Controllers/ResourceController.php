@@ -324,21 +324,24 @@ class ResourceController extends Controller
         $data = $request->validated();
         $roleId = null;
 
-        if (
-            $resource === 'products'
-            && $request->hasFile('image_path')
-        ) {
-            $data['image_path'] = $request
-                ->file('image_path')
-                ->store('products', 'public');
-
-            if (
-                $record->exists
-                && $record->image_path
-            ) {
-                Storage::disk('public')->delete(
-                    $record->image_path
-                );
+        $newPhotos = [];
+        $oldPhotos = [];
+        if (in_array($resource, ['products', 'commodities'], true)) {
+            try {
+                foreach (['image_path', 'image_path_2', 'image_path_3', 'image_path_4', 'image_path_5'] as $field) {
+                    if ($request->hasFile($field)) {
+                        $data[$field] = $request->file($field)->store($resource, 'public');
+                        $newPhotos[] = $data[$field];
+                        if ($record->$field) {
+                            $oldPhotos[] = $record->$field;
+                        }
+                    } else {
+                        unset($data[$field]);
+                    }
+                }
+            } catch (\Throwable $exception) {
+                Storage::disk('public')->delete($newPhotos);
+                throw $exception;
             }
         }
 
@@ -395,23 +398,29 @@ class ResourceController extends Controller
 
         $roleIdForTransaction = $roleId ?? null;
 
-        DB::transaction(function () use (
-            $record,
-            $data,
-            $resource,
-            $roleIdForTransaction
-        ) {
-            $record->fill($data)->save();
-
-            if (
-                $resource === 'users'
-                && $roleIdForTransaction !== null
+        try {
+            DB::transaction(function () use (
+                $record,
+                $data,
+                $resource,
+                $roleIdForTransaction
             ) {
-                $record->roles()->sync([$roleIdForTransaction]);
-            }
-        });
+                $record->fill($data)->save();
 
-        return redirect('/admin/manage/' . $resource)
+                if (
+                    $resource === 'users'
+                    && $roleIdForTransaction !== null
+                ) {
+                    $record->roles()->sync([$roleIdForTransaction]);
+                }
+            });
+        } catch (\Throwable $exception) {
+            Storage::disk('public')->delete($newPhotos);
+            throw $exception;
+        }
+        Storage::disk('public')->delete($oldPhotos);
+
+        return redirect(url('/admin/manage/' . $resource))
             ->with('success', 'Data berhasil disimpan.');
     }
 

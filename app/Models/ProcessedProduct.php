@@ -10,6 +10,7 @@ class ProcessedProduct extends Model
     use HasFactory;
 
     protected $fillable = [
+        'image_path_2', 'image_path_3', 'image_path_4', 'image_path_5',
         'processed_product_category_id',
         'kwt_id',
         'name',

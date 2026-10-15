@@ -3,8 +3,8 @@
         <span class="eyebrow">KREASI PEREMPUAN TANI</span>
         <h1>Diolah dengan cinta.</h1>
         <p>
-            Kenali kreasi olahan KWT dan hubungi koperasi
-            untuk informasi ketersediaan.
+            Olahan rumahan dari hasil kebun KWT, dibuat dalam skala kecil.
+            Hubungi koperasi untuk informasi ketersediaan dan pesanan.
         </p>
     </div>
 
@@ -14,11 +14,11 @@
         <div class="grid-3">
             @forelse($records as $product)
                 <a
-                    class="kwt-card"
+                    class="kwt-card packaged-product-card"
                     href="{{ url('/produk-olahan/' . $product->id) }}"
                 >
                     <img
-                        src="{{ $product->image_path ? Storage::url($product->image_path) : asset('images/garden.svg') }}"
+                        src="{{ \App\Support\ProductImage::url($product->name, $product->image_path) }}"
                         alt="{{ $product->name }}"
                         loading="lazy"
                     >
@@ -56,5 +56,6 @@
                 </p>
             @endforelse
         </div>
+        <div class="pagination">{{ $records->links() }}</div>
     </section>
 </x-layout>

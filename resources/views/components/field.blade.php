@@ -185,7 +185,7 @@
         @if($value)
             <img
                 class="field-preview"
-                src="{{ \Illuminate\Support\Facades\Storage::url($value) }}"
+                src="{{ \Illuminate\Support\Facades\Storage::disk('public')->url($value) }}"
                 alt="Foto saat ini"
             >
         @endif

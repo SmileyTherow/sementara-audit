@@ -16,7 +16,7 @@
         </div>
 
         @if(! auth()->user()->isKoperasi())
-            <a href="/admin/manage/cycles/create" class="btn">
+            <a href="{{ url('/admin/manage/cycles/create') }}" class="btn">
                 + Mulai Budidaya
             </a>
         @endif
@@ -96,7 +96,7 @@
                     : '—' }}
             </p>
 
-            <a href="/admin/reports" class="text-link">
+            <a href="{{ url('/admin/reports') }}" class="text-link">
                 Buka laporan lengkap →
             </a>
         </div>
@@ -199,7 +199,7 @@
 
     <div class="section-heading">
         <h2>Kebun yang sedang tumbuh</h2>
-        <a href="/admin/manage/cycles" class="text-link">
+        <a href="{{ url('/admin/manage/cycles') }}" class="text-link">
             Semua siklus →
         </a>
     </div>

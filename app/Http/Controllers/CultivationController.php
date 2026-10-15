@@ -81,7 +81,7 @@ class CultivationController extends Controller
         if ($kind === 'monitoring') {
             $photo = GrowthMonitoringPhoto::with('monitoring.cycle.kwt')->findOrFail($id);
             $cycle = $photo->monitoring->cycle;
-            $public = $photo->is_public && $cycle && $cycle->kwt?->status === 'active' && $cycle->commodity?->is_active;
+            $public = $photo->is_public && $cycle && $cycle->kwt?->is_active && $cycle->commodity?->is_active;
         } else {
             abort_unless($kind === 'harvest', 404);
             $photo = HarvestPhoto::findOrFail($id);

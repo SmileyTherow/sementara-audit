@@ -24,7 +24,7 @@
     @if($siteSettings['site_favicon'] ?? null)
         <link
             rel="icon"
-            href="{{ Storage::url($siteSettings['site_favicon']) }}"
+            href="{{ Storage::disk('public')->url($siteSettings['site_favicon']) }}"
         >
     @endif
 
@@ -164,7 +164,7 @@
                 @if($siteSettings['site_logo'] ?? null)
                     <img
                         class="brand-icon"
-                        src="{{ Storage::url($siteSettings['site_logo']) }}"
+                        src="{{ Storage::disk('public')->url($siteSettings['site_logo']) }}"
                         alt="Logo koperasi"
                     >
                 @else

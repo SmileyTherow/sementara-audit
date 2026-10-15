@@ -10,7 +10,7 @@
 <article class="product-card">
     <a href="{{ url('/komoditas/' . $commodity->id) }}" class="card-image">
         <img
-            src="{{ asset('images/garden.svg') }}"
+            src="{{ \App\Support\ProductImage::url($commodity->name, $commodity->image_path) }}"
             alt="{{ $commodity->name }}"
             loading="lazy"
         >

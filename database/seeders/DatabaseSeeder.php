@@ -29,6 +29,9 @@ class DatabaseSeeder extends Seeder
             ProcessedProductSeeder::class,
 
             SettingSeeder::class,
+            CatalogExpansionSeeder::class,
+            CatalogPhotosSeeder::class,
+            HomeProcessedProductsSeeder::class,
         ]);
     }
 }

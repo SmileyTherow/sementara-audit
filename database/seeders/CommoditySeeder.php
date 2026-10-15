@@ -80,7 +80,7 @@ class CommoditySeeder extends Seeder
                     'default_unit' => $commodity['default_unit'],
                     'default_growth_days' => $commodity['default_growth_days'],
                     'default_harvest_days' => $commodity['default_harvest_days'],
-                    'description' => 'Data demo tanaman ' . $commodity['name'],
+                    'description' => \App\Support\CatalogDescriptions::commodity($commodity['name']),
                     'is_active' => true,
                     'created_at' => $now,
                     'updated_at' => $now,

@@ -19,11 +19,11 @@
             </p>
 
             <div class="actions">
-                <a href="/komoditas" class="btn">
+                <a href="{{ url('/komoditas') }}" class="btn">
                     Jelajahi Hasil Kebun →
                 </a>
 
-                <a href="/jadwal-panen" class="btn btn-outline">
+                <a href="{{ url('/jadwal-panen') }}" class="btn btn-outline">
                     Lihat Jadwal Panen →
                 </a>
             </div>
@@ -92,8 +92,8 @@
                 </p>
             </div>
 
-            <a href="/komoditas" class="text-link">
-                Semua komoditas →
+            <a href="{{ url('/komoditas') }}" class="text-link">
+                Lihat Semua Komoditas →
             </a>
         </div>
 
@@ -122,7 +122,7 @@
                 untuk informasi ketersediaan.
             </p>
 
-            <a href="/jadwal-panen" class="btn btn-outline">
+            <a href="{{ url('/jadwal-panen') }}" class="btn btn-outline">
                 Kalender panen →
             </a>
         </div>
@@ -185,7 +185,7 @@
                 <h2>Kenali komunitas di baliknya.</h2>
             </div>
 
-            <a href="/kwt" class="text-link">
+            <a href="{{ url('/kwt') }}" class="text-link">
                 Jelajahi semua KWT →
             </a>
         </div>
@@ -230,7 +230,7 @@
                 <h2>Hasil dari kebun kita.</h2>
             </div>
 
-            <a href="/produk-olahan" class="text-link">
+            <a href="{{ url('/produk-olahan') }}" class="text-link">
                 Semua produk →
             </a>
         </div>
@@ -238,9 +238,10 @@
         <div class="grid-3">
             @forelse($products as $product)
                 <a
-                    class="simple-card"
+                    class="kwt-card home-product-card"
                     href="{{ url('/produk-olahan/' . $product->id) }}"
                 >
+                    <img src="{{ \App\Support\ProductImage::url($product->name, $product->image_path) }}" alt="{{ $product->name }}" loading="lazy">
                     <div>
                         <small>
                             {{ $product->kwt?->name ?? 'Koperasi' }}
@@ -283,7 +284,7 @@
             </p>
         </div>
 
-        <a href="/kontak" class="btn btn-cream">
+        <a href="{{ url('/kontak') }}" class="btn btn-cream">
             Hubungi Koperasi →
         </a>
     </section>
