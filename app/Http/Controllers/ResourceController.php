@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Database\Eloquent\Model;
 
 class ResourceController extends Controller
 {
@@ -30,6 +31,7 @@ class ResourceController extends Controller
         string $resource,
         bool $write = false
     ): void {
+        /** @var \App\Models\User $user */
         $user = Auth::user();
 
         if ($resource === 'users') {
@@ -52,6 +54,8 @@ class ResourceController extends Controller
         $this->authorizeResource($resource);
 
         $query = $model::query();
+
+        /** @var \App\Models\User $user */
         $user = $request->user();
 
         /*
@@ -182,6 +186,23 @@ class ResourceController extends Controller
                     $request->input('status')
                 );
             }
+
+            // Add period filters for cycles (planting_date)
+            if ($request->filled('start_date')) {
+                $query->whereDate('planting_date', '>=', $request->input('start_date'));
+            }
+
+            if ($request->filled('end_date')) {
+                $query->whereDate('planting_date', '<=', $request->input('end_date'));
+            }
+
+            if ($request->filled('month')) {
+                $query->whereMonth('planting_date', $request->integer('month'));
+            }
+
+            if ($request->filled('year')) {
+                $query->whereYear('planting_date', $request->integer('year'));
+            }
         }
 
         /*
@@ -235,18 +256,21 @@ class ResourceController extends Controller
 
         $record = $model::findOrFail($id);
 
+        /** @var \App\Models\User $authUser */
+        $authUser = Auth::user();
+
         if (
-            Auth::user()->isOperatorKwt()
+            $authUser->isOperatorKwt()
             && in_array($resource, ['cycles', 'products'], true)
-            && (int) $record->kwt_id !== (int) Auth::user()->kwt_id
+            && (int) $record->kwt_id !== (int) $authUser->kwt_id
         ) {
             abort(403);
         }
 
         if (
-            Auth::user()->isOperatorKwt()
+            $authUser->isOperatorKwt()
             && $resource === 'kwts'
-            && (int) $record->id !== (int) Auth::user()->kwt_id
+            && (int) $record->id !== (int) $authUser->kwt_id
         ) {
             abort(403);
         }
@@ -263,8 +287,9 @@ class ResourceController extends Controller
         string $resource,
         string $title,
         array $fields,
-        $record
+        Model $record
     ) {
+        /** @var \App\Models\User $user */
         $user = Auth::user();
 
         $kwts = Kwt::query()
@@ -324,24 +349,21 @@ class ResourceController extends Controller
         $data = $request->validated();
         $roleId = null;
 
-        $newPhotos = [];
-        $oldPhotos = [];
-        if (in_array($resource, ['products', 'commodities'], true)) {
-            try {
-                foreach (['image_path', 'image_path_2', 'image_path_3', 'image_path_4', 'image_path_5'] as $field) {
-                    if ($request->hasFile($field)) {
-                        $data[$field] = $request->file($field)->store($resource, 'public');
-                        $newPhotos[] = $data[$field];
-                        if ($record->$field) {
-                            $oldPhotos[] = $record->$field;
-                        }
-                    } else {
-                        unset($data[$field]);
-                    }
-                }
-            } catch (\Throwable $exception) {
-                Storage::disk('public')->delete($newPhotos);
-                throw $exception;
+        if (
+            $resource === 'products'
+            && $request->hasFile('image_path')
+        ) {
+            $data['image_path'] = $request
+                ->file('image_path')
+                ->store('products', 'public');
+
+            if (
+                $record->exists
+                && $record->image_path
+            ) {
+                Storage::disk('public')->delete(
+                    $record->image_path
+                );
             }
         }
 
@@ -370,18 +392,21 @@ class ResourceController extends Controller
             unset($data['role']);
         }
 
+        /** @var \App\Models\User $authUser */
+        $authUser = Auth::user();
+
         if (
             $resource === 'cycles'
-            && Auth::user()->isOperatorKwt()
+            && $authUser->isOperatorKwt()
         ) {
-            $data['kwt_id'] = Auth::user()->kwt_id;
+            $data['kwt_id'] = $authUser->kwt_id;
         }
 
         if (
             $resource === 'products'
-            && Auth::user()->isOperatorKwt()
+            && $authUser->isOperatorKwt()
         ) {
-            $data['kwt_id'] = Auth::user()->kwt_id;
+            $data['kwt_id'] = $authUser->kwt_id;
         }
 
         if ($resource === 'kwts' && empty($data['code'])) {
@@ -398,29 +423,23 @@ class ResourceController extends Controller
 
         $roleIdForTransaction = $roleId ?? null;
 
-        try {
-            DB::transaction(function () use (
-                $record,
-                $data,
-                $resource,
-                $roleIdForTransaction
+        DB::transaction(function () use (
+            $record,
+            $data,
+            $resource,
+            $roleIdForTransaction
+        ) {
+            $record->fill($data)->save();
+
+            if (
+                $resource === 'users'
+                && $roleIdForTransaction !== null
             ) {
-                $record->fill($data)->save();
+                $record->roles()->sync([$roleIdForTransaction]);
+            }
+        });
 
-                if (
-                    $resource === 'users'
-                    && $roleIdForTransaction !== null
-                ) {
-                    $record->roles()->sync([$roleIdForTransaction]);
-                }
-            });
-        } catch (\Throwable $exception) {
-            Storage::disk('public')->delete($newPhotos);
-            throw $exception;
-        }
-        Storage::disk('public')->delete($oldPhotos);
-
-        return redirect(url('/admin/manage/' . $resource))
+        return redirect('/admin/manage/' . $resource)
             ->with('success', 'Data berhasil disimpan.');
     }
 

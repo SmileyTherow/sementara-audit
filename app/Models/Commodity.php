@@ -5,13 +5,14 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 
 class Commodity extends Model
 {
     use HasFactory, SoftDeletes;
 
     protected $fillable = [
-        'image_path', 'image_path_2', 'image_path_3', 'image_path_4', 'image_path_5',
         'commodity_category_id',
         'code',
         'name',
@@ -46,6 +47,33 @@ class Commodity extends Model
     public function cultivationCycles()
     {
         return $this->hasMany(CultivationCycle::class);
+    }
+
+    /**
+     * Provide a query builder for HarvestAvailability records that belong
+     * to this commodity via cultivation_cycles -> harvests -> harvest_availabilities.
+     *
+     * Note: This returns an Eloquent query builder, not a conventional Eloquent
+     * relation object. It's intended for usages like:
+     *   $commodity->availabilities()->latest('id')->first();
+     *
+     * Implementation detail:
+     * - harvest_availabilities.harvest_id -> harvests.id
+     * - harvests.cultivation_cycle_id -> cultivation_cycles.id
+     * - cultivation_cycles.commodity_id -> commodities.id
+     */
+    public function availabilities(): Builder
+    {
+        // Use the HarvestAvailability model as base and join through harvests -> cultivation_cycles
+        $availTable = (new \App\Models\HarvestAvailability)->getTable();
+        $harvestTable = (new \App\Models\Harvest)->getTable();
+        $cycleTable = (new \App\Models\CultivationCycle)->getTable();
+
+        return \App\Models\HarvestAvailability::query()
+            ->join($harvestTable, "{$harvestTable}.id", '=', "{$availTable}.harvest_id")
+            ->join($cycleTable, "{$cycleTable}.id", '=', "{$harvestTable}.cultivation_cycle_id")
+            ->where("{$cycleTable}.commodity_id", $this->id)
+            ->select("{$availTable}.*");
     }
 
     public function getPublicStateAttribute(): array

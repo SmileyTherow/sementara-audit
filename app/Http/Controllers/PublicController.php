@@ -118,16 +118,37 @@ class PublicController extends Controller
         return view('public.catalog', compact('records'));
     }
 
-    public function commodity(Commodity $commodity)
+    public function commodity($commodity)
     {
-        abort_unless($commodity->is_active, 404);
+        // Jika parameter sudah berupa instance (Laravel bisa melewatkan instance bila binding berhasil),
+        // gunakan langsung; jika tidak, resolve manual agar bisa menerima baik id maupun slug.
+        if ($commodity instanceof \App\Models\Commodity) {
+            $model = $commodity;
+        } else {
+            // Toleransi terhadap numeric id (seperti /komoditas/3) atau slug (seperti /komoditas/jeruk)
+            if (is_numeric($commodity)) {
+                $model = \App\Models\Commodity::where('id', (int) $commodity)
+                    ->with([
+                        'category',
+                        'cultivationCycles.kwt',
+                        'cultivationCycles.harvests.availability',
+                        'cultivationCycles.growthMonitorings.photos',
+                    ])->firstOrFail();
+            } else {
+                // cari berdasarkan slug (string)
+                $model = \App\Models\Commodity::where('slug', (string) $commodity)
+                    ->with([
+                        'category',
+                        'cultivationCycles.kwt',
+                        'cultivationCycles.harvests.availability',
+                        'cultivationCycles.growthMonitorings.photos',
+                    ])->firstOrFail();
+            }
+        }
 
-        $commodity->load([
-            'category',
-            'cultivationCycles.kwt',
-            'cultivationCycles.harvests.availability',
-            'cultivationCycles.growthMonitorings.photos',
-        ]);
+        $commodity = $model;
+
+        abort_unless($commodity->is_active, 404);
 
         $state = $commodity->public_state;
 
@@ -324,38 +345,51 @@ class PublicController extends Controller
             'quantity' => ['required', 'numeric', 'gt:0', 'max:10000000'],
         ]);
 
-        if ($kind === 'product') {
-            $product = $this->productQuery()->findOrFail($id);
+        try {
+            if ($kind === 'product') {
+                $product = $this->productQuery()->findOrFail($id);
 
-            $url = $service->buildProcessedProductMessage(
-                $product,
-                $data['quantity']
+                $url = $service->buildProcessedProductMessage(
+                    $product,
+                    $data['quantity']
+                );
+
+                return redirect()->away($url);
+            }
+
+            abort_unless($kind === 'commodity', 404);
+
+            $commodity = $this->commodityQuery()->findOrFail($id);
+            $state = $commodity->public_state;
+
+            abort_unless(
+                in_array(
+                    $state['status'],
+                    ['Ready', 'Pre-Order', 'Sedang Ditanam', 'Segera Panen'],
+                    true
+                ),
+                404
+            );
+
+            $url = $service->buildCommodityMessage(
+                $commodity,
+                $data['quantity'],
+                $state
             );
 
             return redirect()->away($url);
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            // Jika service mem-throw 422 karena nomor WhatsApp belum diset,
+            // tangani dengan ramah: kembali ke halaman sebelumnya dengan pesan error.
+            if ($e->getStatusCode() === 422) {
+                return back()
+                    ->withInput()
+                    ->withErrors(['whatsapp' => $e->getMessage()]);
+            }
+
+            // Untuk exception lain, biarkan menerus (agar tidak menyembunyikan bug)
+            throw $e;
         }
-
-        abort_unless($kind === 'commodity', 404);
-
-        $commodity = $this->commodityQuery()->findOrFail($id);
-        $state = $commodity->public_state;
-
-        abort_unless(
-            in_array(
-                $state['status'],
-                ['Ready', 'Pre-Order', 'Sedang Ditanam', 'Segera Panen'],
-                true
-            ),
-            404
-        );
-
-        $url = $service->buildCommodityMessage(
-            $commodity,
-            $data['quantity'],
-            $state
-        );
-
-        return redirect()->away($url);
     }
 
     public function posts()

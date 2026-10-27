@@ -16,39 +16,50 @@ class KwtSayurDemoSeeder extends Seeder
     public function run(): void
     {
         DB::transaction(function () {
-            $kwt = Kwt::firstOrCreate(['slug' => 'kwt-sayur-sejahtera'], [
-                'code' => 'KWT-DEMO-SAYUR',
-                'name' => 'KWT Sayur Sejahtera',
-                'description' => 'KWT contoh untuk demonstrasi budidaya Selada, Kol, dan Pakcoy. Profil dan angka budidaya merupakan data simulasi.',
-                'address' => 'Kebun contoh, Cipondoh, Kota Tangerang',
-                'district' => 'Cipondoh',
-                'village' => 'Cipondoh Indah',
-                'chairman_name' => 'Ibu Rina (contoh)',
-                'established_year' => 2026,
-                'status' => 'active',
-            ]);
+            // Cari atau buat KWT berdasarkan kode unik (tidak lagi berdasarkan slug
+            // karena migration kwts tidak memiliki kolom slug)
+            $kwt = Kwt::firstOrCreate(
+                ['code' => 'KWT-DEMO-SAYUR'],
+                [
+                    'code' => 'KWT-DEMO-SAYUR',
+                    'name' => 'KWT Sayur Sejahtera',
+                    // migration kwts saat ini memiliki kolom leader_name, bukan chairman_name
+                    'leader_name' => 'Ibu Rina (contoh)',
+                    'address' => 'Kebun contoh, Cipondoh, Kota Tangerang',
+                    'district' => 'Cipondoh',
+                    'village' => 'Cipondoh Indah',
+                    // set active agar demo terlihat di publik
+                    'is_active' => true,
+                ]
+            );
+
             $user = User::firstOrCreate(['email' => 'sayur@kwt.test'], [
                 'name' => 'Pengelola Sayur Sejahtera',
                 'password' => 'KwtDemo2026!',
                 'role' => 'admin_kwt',
                 'kwt_id' => $kwt->id,
             ]);
+
             $category = CommodityCategory::firstOrCreate(['name' => 'Sayur & Buah']);
+
             foreach ([['Selada', 35, 500, 0.2], ['Kol', 90, 300, 1.2], ['Pakcoy', 30, 600, 0.25]] as [$name, $days, $plants, $weight]) {
-                $commodity = Commodity::firstOrCreate(['slug' => Str::slug($name).'-sayur-sejahtera'], [
-                    'kwt_id' => $kwt->id,
-                    'category_id' => $category->id,
-                    'name' => $name,
-                    'description' => $name.' dari kebun contoh KWT Sayur Sejahtera. Data simulasi untuk mencoba alur aplikasi.',
-                    'default_growing_days' => $days,
-                    'default_survival_rate' => 90,
-                    'default_expected_weight_per_plant' => $weight,
-                    'default_seed_reserve_percentage' => 10,
-                    'yield_unit' => 'kg',
-                    'cultivation_method' => 'Bedengan kebun contoh',
-                    'is_active' => true,
-                ]);
-                if (! $commodity->cycles()->withTrashed()->exists()) {
+                // Cari atau buat Commodity berdasarkan kwt_id + name agar tidak mengandalkan kolom slug
+                $commodity = Commodity::firstOrCreate(
+                    ['kwt_id' => $kwt->id, 'name' => $name],
+                    [
+                        // migration commodities mengharuskan commodity_category_id (foreign key)
+                        'commodity_category_id' => $category->id,
+                        // sesuaikan nama kolom dengan migration: default_growth_days bukan default_growing_days
+                        'default_growth_days' => $days,
+                        // default_unit ada pada migration; gunakan 'kg' untuk contoh
+                        'default_unit' => 'kg',
+                        'description' => $name . ' dari kebun contoh KWT Sayur Sejahtera. Data simulasi untuk mencoba alur aplikasi.',
+                        'is_active' => true,
+                    ]
+                );
+
+                // Pastikan siklus hanya dibuat jika belum ada (menggunakan service)
+                if (! $commodity->cultivationCycles()->withTrashed()->exists()) {
                     app(CultivationService::class)->create([
                         'commodity_id' => $commodity->id,
                         'start_date' => now()->toDateString(),

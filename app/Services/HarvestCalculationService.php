@@ -66,15 +66,48 @@ class HarvestCalculationService
     public function delete(Harvest $harvest): void
     {
         DB::transaction(function () use ($harvest) {
+            // Lock and re-load related models
             $commodity = Commodity::lockForUpdate()->findOrFail($harvest->commodity_id);
             $cycle = CultivationCycle::lockForUpdate()->findOrFail($harvest->cultivation_cycle_id);
             $harvest = Harvest::lockForUpdate()->findOrFail($harvest->id);
-            $previous = $commodity->availabilities()->latest('id')->first();
-            $quantity = max(0, ($previous?->available_quantity ?? 0) - $harvest->usable_quantity);
+
+            // Find the latest availability snapshot for this commodity that does NOT belong to the harvest being deleted.
+            $remainingLatest = $commodity->availabilities()
+                ->where('harvest_id', '<>', $harvest->id)
+                ->latest('id')
+                ->first();
+
+            // Delete the harvest (this will cascade-delete its availability rows per migration)
             $harvest->delete();
+
+            // Recalculate aggregate on the cycle
             $cycle->update(['actual_yield' => $cycle->harvests()->sum('usable_quantity')]);
-            $this->availability($commodity, ['available_quantity' => $quantity, 'availability_status' => $quantity > 0 ? 'available' : 'sold_out', 'notes' => 'Koreksi pembatalan '.$harvest->harvest_code], auth()->user(), $cycle);
-            AuditService::record('delete',$harvest);
+
+            /*
+            * If there is a remaining latest snapshot from other harvest(s), duplicate it as a new snapshot
+            * tied to the same remaining harvest so the commodity has a fresh "latest" snapshot after deletion.
+            *
+            * We do NOT create a snapshot that references the deleted harvest_id.
+            * We also avoid creating a snapshot with null harvest_id since migration requires harvest_id.
+            *
+            * NOTE: this simply copies the most recent remaining snapshot so the commodity's latest state
+            * remains explicit after the deletion. It does not attempt to recompute net values from individual
+            * historical events; that would require a different logic or schema support.
+            */
+            if ($remainingLatest) {
+                HarvestAvailability::create([
+                    'harvest_id' => $remainingLatest->harvest_id,
+                    'available_quantity' => $remainingLatest->available_quantity,
+                    'reserved_quantity' => $remainingLatest->reserved_quantity,
+                    'sold_quantity' => $remainingLatest->sold_quantity,
+                    'unit' => $remainingLatest->unit,
+                    'available_from' => $remainingLatest->available_from,
+                    'available_until' => $remainingLatest->available_until,
+                    'status' => $remainingLatest->status,
+                ]);
+            }
+
+            AuditService::record('delete', $harvest);
         });
     }
 }
