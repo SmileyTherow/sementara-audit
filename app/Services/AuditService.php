@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 class AuditService
@@ -19,9 +20,9 @@ class AuditService
         );
 
         DB::table('audit_logs')->insert([
-            'user_id' => auth()->id(),
+            'user_id' => Auth::id(),
             'action' => $action,
-            'model' => get_class($model),
+            'model_type' => $model::class,
             'model_id' => $model->getKey(),
             'old_values' => json_encode($old),
             'new_values' => json_encode($new),
